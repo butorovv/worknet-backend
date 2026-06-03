@@ -1,0 +1,7 @@
+BEGIN;
+
+DROP TABLE IF EXISTS space_skills;
+DROP TABLE IF EXISTS space_members;
+DROP TABLE IF EXISTS spaces;
+
+COMMIT;
