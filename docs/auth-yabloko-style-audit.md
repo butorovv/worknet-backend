@@ -52,8 +52,47 @@
 
 Главное отличие: WorkNet сознательно строже Yabloko по dependency direction и
 сохраняет cookie-based Redis sessions вместо JWT. Это нужно оставить. Дальнейший
-рефактор стоит делать как небольшой naming/file-organization cleanup, а не как
-перенос Yabloko один в один.
+рефактор стоит делать как серию маленьких независимых шагов, а не как перенос
+Yabloko один в один.
+
+## Accepted strict Yabloko-style decisions
+
+После дополнительной сверки с Yabloko и текущим WorkNet принято двигаться ближе
+к Yabloko-style в следующих местах:
+
+- Handler naming:
+  - `Handler` -> `AuthHandler`;
+  - `NewHandler` -> `NewAuthHandler`;
+  - package name `authhttp` оставить, потому что он лучше различает локальный
+    package и stdlib `net/http`.
+- Handler interface naming:
+  - `AuthUsecase` в `delivery/http` -> `AuthUseCaseInterface`;
+  - handler field оставить `uc`;
+  - набор методов интерфейса не менять.
+- Usecase naming:
+  - `AuthUsecase` -> `authUseCase`;
+  - `NewAuthUsecase` -> `NewAuthUseCase`;
+  - это ближе к Yabloko, где concrete implementation unexported, а constructor
+    exported. Для WorkNet это приемлемо, потому что модуль живет внутри
+    `internal`, а внешние слои получают значение через constructor и narrow
+    interfaces.
+- Route registration:
+  - текущий private `registerAuthRoutes` в `internal/app/app.go` оставить до
+    отдельного routing step;
+  - `chi` рассматривать отдельным implement step, не смешивать с naming.
+- Repository interfaces:
+  - `usecase/interfaces.go` оставить как место для ports конкретного auth
+    usecase/module;
+  - это не глобальная папка DTO/interfaces для всех usecases проекта.
+- Usecase models:
+  - `RegisterCommand`, `LoginCommand`, `LogoutCommand`,
+    `ValidateSessionCommand`, `AuthResult`, `CurrentUser` считать
+    application/usecase-level models;
+  - usecase не должен импортировать `delivery/transport`, даже если так сделано
+    в Yabloko.
+- Repository SQL:
+  - inline SQL можно вынести в embedded `.sql` files по стилю Yabloko;
+  - это отдельный step после naming и отдельно от `chi`.
 
 ## Текущая структура WorkNet auth
 
@@ -138,7 +177,7 @@ Yabloko полезен как reference по file layout и naming. Но он н
 | Файлы | `auth_usecase.go`, `auth_repo_postgres.go`, `auth_handler.go`, `auth_json.go` | Явный domain prefix упрощает навигацию | WorkNet уже использует эти имена | Да | Оставить | Низкий |
 | Package names | `http`, `transport`, `middlewares`, `usecase`, `repository` | Короткие package names внутри service | WorkNet: `authhttp` package name для `delivery/http`, остальные похожи | Да; `authhttp` удобнее, чтобы не путать с `net/http` | Не менять | Низкий |
 | Handler/delivery | Handler читает JSON, проверяет method/content-type, ставит JWT cookie, мапит errors | Delivery владеет HTTP protocol и cookie behavior | Handler тонкий, мапит DTO в command, ставит `session_id`, строгий JSON decode | Да | Handler не дробить; route wiring вынести ближе к `internal/app` | Низкий |
-| Usecase/service | Concrete `authUseCase`, constructor `NewAuthUseCase`; interface у handler | Usecase содержит auth сценарии и validation | Package `usecase`, concrete `AuthUsecase`, constructor `NewAuthUsecase`; в handler интерфейс называется `AuthService` | Да, но naming можно подчистить | Переименовать consumer-side `AuthService` в `AuthUsecase` или `AuthInteractor` | Низкий |
+| Usecase/service | Concrete `authUseCase`, constructor `NewAuthUseCase`; interface у handler | Usecase содержит auth сценарии и validation | Package `usecase`; после Step 1 handler уже использует `uc`, но concrete usecase еще называется `AuthUsecase` / `NewAuthUsecase` | Да, naming нужно довести до strict Yabloko-style | `AuthUsecase` -> `authUseCase`, `NewAuthUsecase` -> `NewAuthUseCase`, handler interface -> `AuthUseCaseInterface` | Низкий |
 | Repository | `AuthRepoPostgres`, embedded SQL, методы `CreateUser/GetUser...` | SQL вынесен из Go, repo отвечает за persistence | `AuthRepoPostgres` с inline SQL, `SessionRepoRedis` для Redis sessions | Частично | SQL не выносить сейчас; repo names оставить | Средний при выносе SQL |
 | Domain/entity/errors | `User` содержит ID/email/hash; errors текстовые | Минимальная auth domain под JWT flow | `User`, `Session`, `AuthIdentity`, typed status/errors | Да, WorkNet богаче из-за schema/session | Оставить | Низкий |
 | Middleware | Service-level middlewares: access log, CSRF, CORS, rate limit | Auth service сам собирает HTTP boundary | WorkNet auth middleware только session validation | Да для MVP | Не переносить CSRF/CORS/rate limit в style refactor | Средний |
@@ -146,20 +185,22 @@ Yabloko полезен как reference по file layout и naming. Но он н
 | Error mapping | Handler switch + `ResponseSender` | Ошибки логируются и превращаются в HTTP response | `delivery.WriteUsecaseError` + `platform/httpx` | Да, WorkNet API contract другой | Оставить WorkNet format | Высокий при переносе Yabloko response |
 | Dependency direction | Usecase импортирует `delivery/transport` | В Yabloko это упрощает возврат JWT DTO, но смешивает слои | WorkNet usecase не импортирует delivery | WorkNet лучше | Не переносить Yabloko direction | Высокий |
 | Composition root | `auth_service/cmd/app.go` создает config, DB, repo, usecase, mux | Отдельный service bootstrap | `internal/app/app.go`, `cmd/api/main.go` тонкий | Да, WorkNet чище | Оставить | Средний при переносе |
-| Routing | `http.ServeMux`, `NewAuthRouter(mux, base, uc)` | Service-local router factory | `RegisterRoutes(mux, handler, middleware)` в delivery/http | Частично | Перенести route registration в `internal/app` private helper | Низкий |
+| Routing | `http.ServeMux`, `NewAuthRouter(mux, base, uc)` | Service-local router factory | Route registration уже перенесен в `internal/app` private helper `registerAuthRoutes` | Да для composition root; `chi` требует отдельного решения | Следующий routing step: отдельная migration to `chi` с тестами public routes | Средний |
 
 ## Ответы на ключевые вопросы
 
 ### 1. `service` или `usecase`
 
-В текущем actual code WorkNet слой бизнес-логики уже называется `usecase`:
+В текущем actual code WorkNet слой бизнес-логики уже находится в package
+`usecase`:
 
 - package: `internal/modules/auth/usecase`;
 - concrete type: `AuthUsecase`;
 - constructor: `NewAuthUsecase`;
 - file: `auth_usecase.go`.
 
-Слово `service` осталось как local naming:
+После Step 1 слово `service` убрано из handler/app/test naming. До этого оно
+оставалось как local naming:
 
 - `AuthService` interface в `delivery/http/auth_handler.go`;
 - `service` field внутри handler;
@@ -178,15 +219,20 @@ Yabloko полезен как reference по file layout и naming. Но он н
 - handler interface называется `AuthUseCaseInterface`;
 - handler field называется `uc`.
 
-Рекомендация для WorkNet:
+Обновленная рекомендация для WorkNet:
 
 - не создавать папку `auth/service`;
 - оставить package `auth/usecase`;
-- не менять бизнес-тип `AuthUsecase` ради `AuthUseCase`, чтобы не делать
-  косметический diff без пользы;
-- в delivery и app можно переименовать local `service/authService` в
-  `uc/authUsecase`;
-- `AuthService` interface в handler можно переименовать в `AuthUsecase`.
+- привести usecase naming ближе к Yabloko:
+  - concrete implementation `AuthUsecase` -> `authUseCase`;
+  - constructor `NewAuthUsecase` -> `NewAuthUseCase`;
+- привести handler naming ближе к Yabloko:
+  - `Handler` -> `AuthHandler`;
+  - `NewHandler` -> `NewAuthHandler`;
+  - handler-side interface `AuthUsecase` -> `AuthUseCaseInterface`;
+- оставить field name `uc` и local variables `uc/authUsecase`;
+- не менять бизнес-логику и signatures сценариев `Register`, `Login`,
+  `Logout`, `ValidateSession`.
 
 Риск: низкий, если это только naming. Проверка: `go test ./...`, `go vet ./...`.
 
@@ -262,6 +308,9 @@ JSON tags, response shape и field visibility относятся к delivery lay
 - `CurrentUser`;
 - `AuthResult`.
 
+Это application/usecase-level DTO/models. Они описывают input/output
+application scenarios, а не HTTP JSON contract и не persistent/domain entity.
+
 Зачем нужны:
 
 - команды отделяют usecase API от HTTP DTO;
@@ -269,12 +318,16 @@ JSON tags, response shape и field visibility относятся к delivery lay
   cookie, но не возвращаются в JSON body;
 - `CurrentUser` представляет application-level current user без domain methods
   и без HTTP tags.
+- usecase не импортирует `delivery/transport`, чтобы сохранить dependency
+  direction `delivery -> usecase -> domain`, даже если Yabloko использует более
+  короткий путь через `transport.AuthResult`.
 
 Дублирование:
 
 - `CurrentUser` частично дублирует `domain.User` и `transport.UserResponse`;
-- это полезное дублирование, потому что domain entity не должна становиться API
-  response.
+- `RegisterCommand` и `LoginCommand` похожи на request DTO;
+- это полезное дублирование, потому что domain entity и HTTP DTO не должны
+  становиться application API usecase.
 
 Что можно упростить:
 
@@ -383,17 +436,19 @@ domain struct.
 
 Текущее создание:
 
-- `internal/app/app.go` создает `authMiddleware := authmw.NewMiddleware(authService, cookieConfig)`;
-- `authhttp.RegisterRoutes` принимает готовый middleware;
+- `internal/app/app.go` создает `authMiddleware := authmw.NewMiddleware(authUsecase, cookieConfig)`;
+- private `registerAuthRoutes` в `internal/app/app.go` принимает готовый
+  middleware;
 - `delivery/middlewares.Middleware.RequireAuth(next)` читает cookie
   `session_id`, вызывает `ValidateSession`, кладет `CurrentUser` и `SessionID`
   в request context.
 
 Почему middleware структура с методами:
 
-- структура хранит `service` и `cookies`;
+- структура хранит `validator` и `cookies`;
 - constructor удобен для DI в `internal/app`;
-- tests могут создать middleware с fake service и cookie config;
+- tests могут создать middleware с fake usecase/session validator и cookie
+  config;
 - метод `RequireAuth` читается как reusable dependency.
 
 Как в Yabloko:
@@ -413,8 +468,8 @@ ASAP ближе к WorkNet по session middleware:
 - оставить middleware в `auth/delivery/middlewares`;
 - оставить constructor-based DI;
 - можно переименовать generic `Middleware` в `AuthMiddleware`;
-- можно переименовать interface `AuthUsecase` в `SessionValidator`, потому что
-  middleware зависит только от `ValidateSession`.
+- interface `SessionValidator` уже является правильным target/current naming,
+  потому что middleware зависит только от `ValidateSession`.
 
 Можно ли сделать проще:
 
@@ -443,7 +498,7 @@ cleanup (`SessionValidator`, `AuthMiddleware`, `auth_middleware.go`).
 - создает `pgxpool`;
 - создает Redis client;
 - создает auth repositories;
-- создает `AuthUsecase`;
+- создает auth usecase (`NewAuthUsecase` сейчас, `NewAuthUseCase` target);
 - создает handler и middleware;
 - регистрирует routes;
 - владеет HTTP server и закрытием ресурсов.
@@ -458,13 +513,13 @@ cleanup (`SessionValidator`, `AuthMiddleware`, `auth_middleware.go`).
 
 - оставить WorkNet схему;
 - не переносить Yabloko bootstrap один в один;
-- перенести auth route registration из `delivery/http` ближе к composition root:
-  предпочтительно private helper `registerAuthRoutes` внутри `internal/app/app.go`
-  или, если `app.go` станет слишком большим, в `internal/app/routes.go`;
+- оставить auth route registration в composition root через private helper
+  `registerAuthRoutes` внутри `internal/app/app.go` или, если `app.go` станет
+  слишком большим, в `internal/app/routes.go`;
 - handler при этом остается набором HTTP methods, JSON decode и cookie helpers;
 - если `app.go` станет расти, можно выделить private helpers внутри `internal/app`:
   `newPostgresPool`, `newRedisClient`, `newAuthModule`, `newRouter`;
-- это делать отдельным маленьким refactor step после auth naming/file cleanup.
+- это делать отдельным маленьким refactor step, не смешивая с naming/SQL/routing.
 
 Риск упрощения запуска: средний. Любая ошибка в composition root может сломать
 startup, resource cleanup или route registration. Проверка: `go test ./...`,
@@ -507,9 +562,10 @@ ASAP использует:
 
 Рекомендация:
 
-- не внедрять `chi` в текущем auth style refactor;
-- если команда захочет `chi`, делать отдельный PR/ADR: "routing layer migration";
-- до решения оставить stdlib `http.ServeMux`.
+- не внедрять `chi` в Step A naming или Step B embedded SQL;
+- делать `chi` отдельным Step C: "routing migration to chi";
+- перед Step C отдельно согласовать `go.mod/go.sum` diff и route-test scope;
+- до Step C оставить текущий router wiring behavior.
 
 ## Interface and struct audit
 
@@ -517,24 +573,25 @@ ASAP использует:
 
 | Interface | Где объявлен | Кто реализует | Кто потребляет | Нужен ли | Рекомендация | Dependency direction |
 |---|---|---|---|---|---|---|
-| `authhttp.AuthService` | `internal/modules/auth/delivery/http/auth_handler.go` | `*usecase.AuthUsecase`; test fake `fakeAuthService` | `authhttp.Handler` | Да | Переименовать в `AuthUsecase` или `AuthUsecasePort`; поле `service` -> `uc` | Не нарушает: delivery зависит от usecase contract, но interface объявлен у потребителя |
-| `middlewares.AuthUsecase` | `internal/modules/auth/delivery/middlewares/middlewares.go` | `*usecase.AuthUsecase`; test fake `fakeAuthService` | `middlewares.Middleware` | Да | Переименовать в `SessionValidator`, потому что нужен только `ValidateSession` | Не нарушает: middleware не знает concrete usecase |
-| `usecase.AuthRepository` | `internal/modules/auth/usecase/interfaces.go` | `*repository.AuthRepoPostgres`; `fakeUsers` в tests | `usecase.AuthUsecase` | Да | Оставить; не дробить сейчас на `UserRepository`/`IdentityRepository` | Правильно: usecase объявляет storage port, repository его реализует |
-| `usecase.SessionStore` | `internal/modules/auth/usecase/interfaces.go` | `*repository.SessionRepoRedis`; `fakeSessions` в tests | `usecase.AuthUsecase` | Да | Оставить; имя лучше, чем `SessionRepository`, потому что Redis sessions являются ephemeral store | Правильно |
-| `usecase.PasswordHasher` | `internal/modules/auth/usecase/interfaces.go` | `*password.BcryptHasher`; `fakeHasher` в tests | `usecase.AuthUsecase` | Да | Оставить; concrete bcrypt не протекает в usecase | Правильно |
-| `usecase.SessionTokenGenerator` | `internal/modules/auth/usecase/interfaces.go` | `*token.RandomGenerator`; `fakeTokens` в tests | `usecase.AuthUsecase` | Да | Оставить; позволяет тестировать token generation без crypto randomness | Правильно |
-| `usecase.Clock` | `internal/modules/auth/usecase/interfaces.go` | `RealClock`; `fakeClock` в tests | `usecase.AuthUsecase` | Да | Оставить, но только как testability seam; не выносить за пределы usecase | Правильно |
+| `authhttp.AuthUsecase` сейчас / `authhttp.AuthUseCaseInterface` target | `internal/modules/auth/delivery/http/auth_handler.go` | `*usecase.AuthUsecase` сейчас / `*usecase.authUseCase` target; test fake `fakeAuthUsecase` | `authhttp.AuthHandler` target | Да | В Step A переименовать в `AuthUseCaseInterface`; field `uc` оставить | Не нарушает: delivery зависит от usecase contract, interface объявлен у потребителя |
+| `middlewares.SessionValidator` | `internal/modules/auth/delivery/middlewares/middlewares.go` | `*usecase.AuthUsecase` сейчас / `*usecase.authUseCase` target; test fake `fakeAuthUsecase` | `middlewares.Middleware` | Да | Оставить; имя точнее, потому что middleware нужен только `ValidateSession` | Не нарушает: middleware не знает concrete usecase |
+| `usecase.AuthRepository` | `internal/modules/auth/usecase/interfaces.go` | `*repository.AuthRepoPostgres`; `fakeUsers` в tests | `usecase.AuthUsecase` сейчас / `usecase.authUseCase` target | Да | Оставить в `usecase/interfaces.go`; не дробить сейчас на `UserRepository`/`IdentityRepository` | Правильно: usecase объявляет storage port, repository его реализует |
+| `usecase.SessionStore` | `internal/modules/auth/usecase/interfaces.go` | `*repository.SessionRepoRedis`; `fakeSessions` в tests | `usecase.AuthUsecase` сейчас / `usecase.authUseCase` target | Да | Оставить; имя лучше, чем `SessionRepository`, потому что Redis sessions являются ephemeral store | Правильно |
+| `usecase.PasswordHasher` | `internal/modules/auth/usecase/interfaces.go` | `*password.BcryptHasher`; `fakeHasher` в tests | `usecase.AuthUsecase` сейчас / `usecase.authUseCase` target | Да | Оставить; concrete bcrypt не протекает в usecase | Правильно |
+| `usecase.SessionTokenGenerator` | `internal/modules/auth/usecase/interfaces.go` | `*token.RandomGenerator`; `fakeTokens` в tests | `usecase.AuthUsecase` сейчас / `usecase.authUseCase` target | Да | Оставить; позволяет тестировать token generation без crypto randomness | Правильно |
+| `usecase.Clock` | `internal/modules/auth/usecase/interfaces.go` | `RealClock`; `fakeClock` в tests | `usecase.AuthUsecase` сейчас / `usecase.authUseCase` target | Да | Оставить, но только как testability seam; не выносить за пределы usecase | Правильно |
 
 #### Вывод по interfaces
 
 - Лишних interfaces в production path не найдено.
 - Два delivery-level interfaces нужны для тестируемости и narrow dependencies,
-  но их naming стоит подчистить:
-  - `AuthService` -> `AuthUsecase`;
-  - `middlewares.AuthUsecase` -> `SessionValidator`.
-- `usecase/interfaces.go` оправдан: auth usecase потребляет несколько ports, а не
-  один repository.
-- Заменять delivery interfaces на concrete `*usecase.AuthUsecase` не стоит:
+  но handler naming в Step A стоит довести до strict Yabloko-style:
+  - `authhttp.AuthUsecase` -> `authhttp.AuthUseCaseInterface`;
+  - `middlewares.SessionValidator` оставить.
+- `usecase/interfaces.go` оправдан: auth usecase потребляет несколько ports
+  конкретного auth module: Postgres auth repo, Redis session store, hasher,
+  token generator, clock. Это не глобальное место для interfaces всего проекта.
+- Заменять delivery interfaces на concrete usecase type не стоит:
   тесты handler/middleware станут тяжелее, а dependency direction станет менее
   выразительной.
 - Заменять usecase interfaces на concrete repository/hasher/token types нельзя:
@@ -544,8 +601,8 @@ ASAP использует:
 
 | Struct | Слой | Кто создает | Кто использует | Зачем нужна | Дублирование | Рекомендация |
 |---|---|---|---|---|---|---|
-| `authhttp.Handler` | delivery/http | `internal/app` через `authhttp.NewHandler` | Route handlers / tests | Хранит auth usecase dependency и cookie config для HTTP methods | Нет | Оставить; field `service` -> `uc` |
-| `usecase.AuthUsecase` | usecase | `internal/app` через `NewAuthUsecase`; tests через `newAuthUsecase` | delivery interfaces, tests | Содержит auth scenarios and application rules | Нет | Оставить; не переименовывать в `AuthUseCase` без team naming decision |
+| `authhttp.Handler` сейчас / `authhttp.AuthHandler` target | delivery/http | `internal/app` через `authhttp.NewHandler` сейчас / `authhttp.NewAuthHandler` target | Route handlers / tests | Хранит auth usecase dependency и cookie config для HTTP methods | Нет | В Step A переименовать в `AuthHandler`; field `uc` оставить |
+| `usecase.AuthUsecase` сейчас / `usecase.authUseCase` target | usecase | `internal/app` через `NewAuthUsecase` сейчас / `NewAuthUseCase` target; tests через helper | delivery interfaces, tests | Содержит auth scenarios and application rules | Нет | В Step A переименовать в `authUseCase` + `NewAuthUseCase`, ближе к Yabloko |
 | `repository.AuthRepoPostgres` | repository | `internal/app` | `usecase.AuthRepository` port | PostgreSQL users/password identities adapter | Нет | Оставить; inline SQL не трогать |
 | `repository.SessionRepoRedis` | repository | `internal/app` | `usecase.SessionStore` port | Redis active sessions adapter | Нет | Оставить; Redis contract не менять |
 | `middlewares.Middleware` | delivery/middlewares | `internal/app` через `authmw.NewMiddleware` | route wrapping | Хранит session validator and cookie config | Нет | Оставить или переименовать в `AuthMiddleware`; function-only rewrite не нужен |
@@ -556,12 +613,12 @@ ASAP использует:
 | `transport.LoginRequest` | delivery/transport | JSON decoder | `Handler.Login` | Public request DTO | Не дублирует usecase полностью | Оставить |
 | `transport.AuthResponse` | delivery/transport | mapper `ToAuthResponse` | HTTP responses | Public response DTO | Частично дублирует `usecase.AuthResult`, но без session fields | Оставить |
 | `transport.UserResponse` | delivery/transport | mapper `ToUserResponse` | `AuthResponse`, `Me` | Public user response DTO | Частично дублирует `usecase.CurrentUser` | Оставить ради API boundary |
-| `usecase.RegisterCommand` | usecase | `Handler.Register` | `AuthUsecase.Register` | Application input | Похож на request DTO | Оставить ради boundary |
-| `usecase.LoginCommand` | usecase | `Handler.Login` | `AuthUsecase.Login` | Application input | Похож на request DTO | Оставить |
-| `usecase.LogoutCommand` | usecase | `Handler.Logout` | `AuthUsecase.Logout` | Application input | Минимальная wrapper struct | Оставить для единообразия commands |
-| `usecase.ValidateSessionCommand` | usecase | middleware | `AuthUsecase.ValidateSession` | Application input | Минимальная wrapper struct | Оставить |
+| `usecase.RegisterCommand` | usecase | `AuthHandler.Register` target | `authUseCase.Register` target | Application input | Похож на request DTO | Оставить ради boundary |
+| `usecase.LoginCommand` | usecase | `AuthHandler.Login` target | `authUseCase.Login` target | Application input | Похож на request DTO | Оставить |
+| `usecase.LogoutCommand` | usecase | `AuthHandler.Logout` target | `authUseCase.Logout` target | Application input | Минимальная wrapper struct | Оставить для единообразия commands |
+| `usecase.ValidateSessionCommand` | usecase | middleware | `authUseCase.ValidateSession` target | Application input | Минимальная wrapper struct | Оставить |
 | `usecase.CurrentUser` | usecase | `currentUserFromDomain` | middleware context, response mapper | Application output for authenticated user | Дублирует часть `domain.User` | Оставить: domain entity не должна становиться response DTO |
-| `usecase.AuthResult` | usecase | `AuthUsecase` | handler response/cookie logic | Application output with user + session metadata | Дублирует response частично | Оставить: `SessionID` не публичный JSON |
+| `usecase.AuthResult` | usecase | `authUseCase` target | handler response/cookie logic | Application output with user + session metadata | Дублирует response частично | Оставить: `SessionID` не публичный JSON |
 | `domain.User` | domain | repository scan | usecase | Core auth user entity | Частично пересекается с DTO/result | Оставить |
 | `domain.AuthIdentity` | domain | Сейчас напрямую не создается | Не используется как struct; `ProviderPassword` используется | Schema readability for identities | Может быть dead code | Оставить пока; удаление обсудить отдельно |
 | `domain.Session` | domain | usecase, repository mapper | usecase/session store | Core active session entity | Частично пересекается с Redis payload | Оставить |
@@ -582,7 +639,7 @@ ASAP использует:
 ## Recommended target structure
 
 Цель: не менять business behavior, а сделать auth module чуть яснее по files и
-naming.
+naming, двигаясь ближе к Yabloko там, где это не ломает WorkNet contracts.
 
 ```txt
 internal/modules/auth/
@@ -598,6 +655,13 @@ internal/modules/auth/
     models.go
   repository/
     auth_repo_postgres.go
+    sql/
+      auth/
+        create_password_user.sql
+        find_user_by_email.sql
+        find_user_by_id.sql
+        password_hash_by_user_id.sql
+        touch_password_identity.sql
     session_repo_redis.go
   delivery/
     errors.go
@@ -613,9 +677,25 @@ internal/app/
   app.go
 ```
 
+Целевые names:
+
+- `authhttp.AuthHandler`;
+- `authhttp.NewAuthHandler`;
+- `authhttp.AuthUseCaseInterface`;
+- `usecase.authUseCase`;
+- `usecase.NewAuthUseCase`;
+- `registerAuthRoutes` остается private helper в `internal/app` до отдельного
+  routing migration step.
+
+Future routing target после отдельного согласования:
+
+- добавить `chi`;
+- заменить `http.ServeMux` на `chi.Router` в composition root;
+- сохранить exact public routes и текущий method/error/cookie behavior;
+- не делать это в naming step.
+
 `cmd/api/main.go` остается. `internal/app/app.go` остается composition root и
-получает route wiring responsibility через private helper, например
-`registerAuthRoutes(mux, authHandler, authMiddleware)`.
+держит dependency wiring, server lifecycle и route registration.
 
 Если `app.go` начнет разрастаться, допустимый следующий вариант —
 `internal/app/routes.go` с unexported helper. На текущем этапе лучше начать с
@@ -627,19 +707,27 @@ private helper в `app.go`, чтобы не плодить файлы.
 - `domain/identity.go`: password provider и future auth identity model.
 - `domain/session.go`: domain session entity.
 - `domain/errors.go`: stable domain errors для usecase/repository/delivery mapping.
-- `usecase/auth_usecase.go`: сценарии `Register`, `Login`, `Logout`,
-  `ValidateSession` и private validation/session helpers.
-- `usecase/interfaces.go`: ports, которые потребляет usecase:
+- `usecase/auth_usecase.go`: unexported implementation `authUseCase`,
+  exported constructor `NewAuthUseCase`, сценарии `Register`, `Login`,
+  `Logout`, `ValidateSession` и private validation/session helpers.
+- `usecase/interfaces.go`: ports конкретного auth usecase/module, которые он
+  потребляет:
   `AuthRepository`, `SessionStore`, `PasswordHasher`, `SessionTokenGenerator`,
   `Clock`.
-- `usecase/models.go`: commands/results/current user.
+- `usecase/models.go`: application/usecase-level commands/results/current user:
+  `RegisterCommand`, `LoginCommand`, `LogoutCommand`, `ValidateSessionCommand`,
+  `AuthResult`, `CurrentUser`.
 - `repository/auth_repo_postgres.go`: PostgreSQL adapter for users/password
-  identities.
+  identities; после embedded SQL step содержит Go adapter logic и `go:embed`
+  bindings, но не inline query bodies.
+- `repository/sql/auth/*.sql`: SQL queries for auth Postgres adapter, перенесенные
+  без изменения смысла.
 - `repository/session_repo_redis.go`: Redis adapter for active sessions.
 - `delivery/errors.go`: mapping domain/usecase errors to WorkNet HTTP error
   contract.
-- `delivery/http/auth_handler.go`: handler struct, handler methods,
-  strict JSON decode helper and session cookie helpers.
+- `delivery/http/auth_handler.go`: `AuthUseCaseInterface`, `AuthHandler`,
+  `NewAuthHandler`, handler methods, strict JSON decode helper and session cookie
+  helpers.
 - `delivery/transport/auth_json.go`: request/response DTO and mapping.
 - `delivery/middlewares/middlewares.go`: auth session validation middleware.
 - `delivery/middlewares/context.go`: auth context helpers.
@@ -658,39 +746,43 @@ private helper в `app.go`, чтобы не плодить файлы.
 - PostgreSQL schema and migrations.
 - `internal/app` as composition root.
 - `cmd/api/main.go` as thin entrypoint.
-- `usecase/interfaces.go` as interface home.
+- `usecase/interfaces.go` as auth usecase/module ports home.
 - Separate `AuthRepository` and `SessionStore`.
+- Separate usecase models and delivery DTO.
+- No usecase import of `delivery/transport`.
 - WorkNet error response format.
-- No `chi` for current task.
+- No `chi` in naming or SQL steps.
 
 ## Что переименовать
 
-Low-risk naming cleanup:
+Strict Yabloko naming cleanup:
 
 - In `delivery/http/auth_handler.go`:
-  - `AuthService` -> `AuthUsecase`;
-  - handler field `service` -> `uc`.
+  - `Handler` -> `AuthHandler`;
+  - `NewHandler` -> `NewAuthHandler`;
+  - `AuthUsecase` -> `AuthUseCaseInterface`;
+  - handler field stays `uc`.
+- In `usecase/auth_usecase.go`:
+  - `AuthUsecase` -> `authUseCase`;
+  - `NewAuthUsecase` -> `NewAuthUseCase`;
+  - private helper `newAuthUsecase` can become `newAuthUseCase` or be removed if
+    constructor remains simple enough.
 - In `delivery/middlewares/middlewares.go`:
-  - interface `AuthUsecase` -> `SessionValidator`;
-  - type `Middleware` -> `AuthMiddleware` only if команда хочет более explicit
-    naming.
+  - keep `SessionValidator`;
+  - optional later: `Middleware` -> `AuthMiddleware`.
 - In `internal/app/app.go`:
-  - local variable `authService` -> `authUsecase`;
-  - local variable `authMiddleware` can stay.
-- In usecase tests:
-  - local variable `service` -> `uc`.
-
-Не обязательно:
-
-- `AuthUsecase` -> `AuthUseCase`. Это ближе к Yabloko, но дает косметический
-  churn и менее консистентно с package path `usecase`.
+  - update calls to `NewAuthUseCase` and `NewAuthHandler`;
+  - local variable `authUsecase` can stay.
+- In tests:
+  - update concrete type references and constructors;
+  - local variables `uc` stay.
 
 ## Что перенести
 
-- `RegisterRoutes` logic из `delivery/http/auth_handler.go` в
-  `internal/app/app.go` как private helper.
-- `middlewares.go` можно переименовать в `auth_middleware.go` только в optional
-  middleware cleanup step.
+- Inline SQL bodies from `repository/auth_repo_postgres.go` to
+  `repository/sql/auth/*.sql` in a separate embedded SQL step.
+- Route registration from current stdlib helper to `chi` route grouping only in
+  a separate routing migration step after dependency approval.
 
 Не переносить:
 
@@ -698,7 +790,8 @@ Low-risk naming cleanup:
   из `auth_handler.go` сейчас;
 - interfaces из `usecase/interfaces.go` в repository;
 - usecase results в delivery/transport;
-- repo/usecase construction в delivery router factory.
+- repo/usecase construction в delivery router factory;
+- naming, SQL and routing changes in one implement step.
 
 ## Что удалить
 
@@ -712,41 +805,51 @@ Low-risk naming cleanup:
 
 ## Что добавить
 
-- Private route helper in `internal/app/app.go`, например
-  `registerAuthRoutes`.
-- Возможно `delivery/middlewares/auth_middleware.go` вместо `middlewares.go` на
-  optional step.
+- In embedded SQL step:
+  - `internal/modules/auth/repository/sql/auth/create_password_user.sql`;
+  - `internal/modules/auth/repository/sql/auth/find_user_by_email.sql`;
+  - `internal/modules/auth/repository/sql/auth/find_user_by_id.sql`;
+  - `internal/modules/auth/repository/sql/auth/password_hash_by_user_id.sql`;
+  - `internal/modules/auth/repository/sql/auth/touch_password_identity.sql`.
+- In chi routing step:
+  - dependency `github.com/go-chi/chi/v5`;
+  - route tests around exact current public routes and middleware wrapping.
 
-Тесты можно оставить в `auth_handler_test.go`, но после file split стоит
-проверить, что покрытие still protects:
+Тесты должны продолжать защищать:
 
 - method checks;
 - invalid JSON;
 - cookie set/clear;
 - missing cookie;
-- route wiring.
+- route wiring;
+- route protection for `logout` and `me`.
 
 ## Safe refactor plan
 
-### Step 1. Naming/interfaces cleanup
+### Step A. Strict Yabloko naming only
 
 Файлы:
 
-- `internal/modules/auth/delivery/http/auth_handler.go`;
-- `internal/modules/auth/delivery/middlewares/middlewares.go`;
 - `internal/app/app.go`;
-- `internal/modules/auth/usecase/auth_usecase_test.go`;
-- `internal/modules/auth/delivery/http/auth_handler_test.go`.
+- `internal/modules/auth/delivery/http/auth_handler.go`;
+- `internal/modules/auth/delivery/http/auth_handler_test.go`;
+- `internal/modules/auth/delivery/middlewares/middlewares.go`;
+- `internal/modules/auth/usecase/auth_usecase.go`;
+- `internal/modules/auth/usecase/auth_usecase_test.go`.
 
 Изменения:
 
-- `AuthService` -> `AuthUsecase` в handler package.
-- Handler field `service` -> `uc`.
-- Middleware interface `AuthUsecase` -> `SessionValidator`.
-- Local variables `authService/service` -> `authUsecase/uc` where it improves
-  readability.
-- Не менять concrete `usecase.AuthUsecase` и constructor `NewAuthUsecase`.
+- `authhttp.Handler` -> `authhttp.AuthHandler`.
+- `authhttp.NewHandler` -> `authhttp.NewAuthHandler`.
+- `authhttp.AuthUsecase` -> `authhttp.AuthUseCaseInterface`.
+- Handler field оставить `uc`.
+- `usecase.AuthUsecase` -> `usecase.authUseCase`.
+- `usecase.NewAuthUsecase` -> `usecase.NewAuthUseCase`.
+- Обновить app/tests/handlers/middleware compile references.
 - Не менять `usecase/interfaces.go` placement.
+- Не менять method signatures сценариев и бизнес-логику.
+- Не менять routes, cookie behavior, JSON decode behavior, DB, Redis, Docker,
+  `go.mod/go.sum`.
 
 Риск: низкий. Это compile-time naming refactor.
 
@@ -758,92 +861,142 @@ Low-risk naming cleanup:
 - `go vet ./...`;
 - `docker compose config`.
 
-### Step 2. Route registration cleanup in app
+Как проверить, что behavior не изменился:
+
+- handler tests продолжают проверять register/login/logout/me;
+- usecase tests продолжают проверять register/login/validate session;
+- `git diff` не содержит изменений в SQL strings, cookie attrs, endpoint paths,
+  JSON decode helper или error mapping.
+
+### Step B. Embedded SQL only
 
 Файлы:
 
-- `internal/modules/auth/delivery/http/auth_handler.go`;
-- `internal/app/app.go`;
-- `internal/modules/auth/delivery/http/auth_handler_test.go`.
+- `internal/modules/auth/repository/auth_repo_postgres.go`;
+- `internal/modules/auth/repository/sql/auth/create_password_user.sql`;
+- `internal/modules/auth/repository/sql/auth/find_user_by_email.sql`;
+- `internal/modules/auth/repository/sql/auth/find_user_by_id.sql`;
+- `internal/modules/auth/repository/sql/auth/password_hash_by_user_id.sql`;
+- `internal/modules/auth/repository/sql/auth/touch_password_identity.sql`.
 
 Изменения:
 
-- Удалить exported `authhttp.RegisterRoutes` из handler package.
-- Добавить private `registerAuthRoutes` helper в `internal/app/app.go`.
-- Сохранить exact public routes:
+- Добавить embedded SQL files по стилю Yabloko.
+- Использовать `//go:embed` для SQL strings.
+- Не менять запросы по смыслу:
+  - transaction в `CreatePasswordUser` сохраняется;
+  - insert into `users` сохраняется;
+  - insert into `auth_identities` with `provider='password'` сохраняется;
+  - selects и update `last_used_at` сохраняются.
+- Не менять DB schema/migrations.
+- Не менять Redis/session repository.
+- Не менять public API.
+
+Риск: средний-низкий. Основной риск — случайно изменить whitespace/placeholder
+или порядок SQL statements так, что Postgres behavior поменяется.
+
+Проверка:
+
+- `gofmt`;
+- `go test ./...`;
+- `go vet ./...`;
+- `docker compose config`;
+- optional manual compare of old inline SQL vs embedded SQL content;
+- при наличии test DB позже добавить/запустить repository integration smoke.
+
+Как проверить, что behavior не изменился:
+
+- `CreatePasswordUser` still creates user and password identity in one
+  transaction;
+- `FindByEmail`, `FindByID`, `PasswordHashByUserID`,
+  `TouchPasswordIdentity` return same domain/errors;
+- no migration files changed.
+
+### Step C. Routing migration to chi
+
+Файлы:
+
+- `go.mod`;
+- `go.sum`;
+- `internal/app/app.go`;
+- likely new or updated route tests, например `internal/app/app_test.go` или
+  focused auth route wiring tests.
+
+Минимальный diff для сохранения public API behavior:
+
+- Добавить dependency `github.com/go-chi/chi/v5`.
+- В `internal/app/app.go` создать `chi.NewRouter()` вместо `http.NewServeMux`.
+- Оставить `health` behavior через handler method check.
+- Сохранить exact auth paths:
   - `POST /api/v1/auth/register`;
   - `POST /api/v1/auth/login`;
   - `POST /api/v1/auth/logout`;
   - `GET /api/v1/auth/me`.
-- Сохранить middleware wrapping for `logout` and `me`.
-- Не выносить JSON/cookie helpers.
+- Чтобы сохранить текущий `405`/error behavior handler methods, route
+  registration должна направлять все methods на handler methods, а не заменять
+  их chi method-specific handlers без проверки response contract.
+- Сохранить middleware wrapping for `logout` and `me`, например через
+  `middleware.RequireAuth(http.HandlerFunc(handler.Logout))` или эквивалентный
+  `chi.With(middleware.RequireAuth)` после проверки tests.
+- Не менять handler methods, cookie behavior, JSON decode behavior, DB, Redis.
 
-Риск: низкий-средний. Можно случайно изменить route registration или protected
-route wrapping.
+Риск: средний. `chi` может изменить behavior вокруг method mismatch, trailing
+slash, 404/405 и middleware ordering, если использовать method-specific routes
+без тестов.
 
 Проверка:
 
-- handler tests must pass;
+- route tests for exact current public routes;
+- tests for wrong method preserving current error/status behavior;
+- tests that `logout` and `me` remain protected;
 - `go test ./...`;
 - `go vet ./...`;
 - `docker compose config`;
-- при необходимости quick HTTP smoke for register/login/logout/me.
+- quick HTTP smoke for register/login/logout/me after separate approval.
 
-### Step 3. Middleware naming/file cleanup
+Как проверить, что behavior не изменился:
 
-Файлы:
-
-- `internal/modules/auth/delivery/middlewares/middlewares.go`;
-- target `internal/modules/auth/delivery/middlewares/auth_middleware.go`;
-- `internal/modules/auth/delivery/middlewares/context.go`;
-- `internal/modules/auth/delivery/http/auth_handler_test.go`;
-- `internal/app/app.go`.
-
-Изменения:
-
-- Optionally rename file to `auth_middleware.go`.
-- Optionally rename type `Middleware` -> `AuthMiddleware`.
-- Keep constructor-based DI.
-
-Риск: низкий. Main risk is import/type mismatch.
-
-Проверка:
-
-- middleware tests through handler test suite;
-- `go test ./...`;
-- `go vet ./...`;
-- `docker compose config`.
+- response codes and error shapes for current auth tests stay the same;
+- cookie attrs stay the same;
+- Redis session validation path stays the same;
+- `go.mod/go.sum` diff contains only chi dependency changes required by the
+  routing step.
 
 ## Вопросы для Павла, Георгия и Сергея
 
-1. Нужен ли strict naming `AuthUseCase` вместо текущего `AuthUsecase`?
-   - Почему требует решения: это naming standard для будущих modules.
-   - Варианты: оставить `AuthUsecase`; переименовать в `AuthUseCase`.
-   - Последствия: первый вариант меньше diff, второй ближе к Yabloko.
+1. Подтвердить, что Step A использует именно `authUseCase` + `NewAuthUseCase`.
+   - Почему требует решения: `authUseCase` unexported и ближе к Yabloko, но
+     exported `AuthUseCase` был бы проще искать из других packages.
+   - Рекомендованный вариант: `authUseCase` + `NewAuthUseCase`.
+   - Последствия: меньше наружной API surface внутри `internal`, но type нельзя
+     будет назвать из других packages напрямую.
 
-2. Route helper держать прямо в `internal/app/app.go` или сразу вынести в
-   `internal/app/routes.go`?
-   - Почему требует решения: это standard для будущего route wiring.
-   - Варианты: private helper в `app.go`; unexported helper в `routes.go`.
-   - Последствия: `app.go` проще для маленького diff; `routes.go` лучше, если
-     скоро появятся новые modules.
+2. Подтвердить, что embedded SQL files в Step B называются по operation names,
+   а не повторяют дословно Yabloko names.
+   - Почему требует решения: WorkNet repo methods отличаются от Yabloko
+     (`CreatePasswordUser`, `PasswordHashByUserID`, `TouchPasswordIdentity`).
+   - Рекомендованный вариант: names match WorkNet operations.
+   - Последствия: легче сопоставлять SQL file и repository method.
 
-3. Нужен ли `chi` как routing standard для всего backend позже?
-   - Почему требует решения: это меняет dependency set и routing behavior.
-   - Варианты: оставить `http.ServeMux`; делать отдельный `chi` PR/ADR.
-   - Последствия: `ServeMux` достаточно для текущего auth, `chi` полезнее после
-     появления route groups/path params.
+3. Перед Step C отдельно подтвердить `chi` dependency и exact route-test scope.
+   - Почему требует решения: `go.mod/go.sum` меняются, а router может повлиять
+     на 404/405/trailing slash behavior.
+   - Рекомендованный вариант: делать Step C только после Step A и Step B.
+   - Последствия: routing risk изолирован от naming и repository cleanup.
 
 ## Итоговая рекомендация
 
-Сейчас не стоит делать крупный рефактор. WorkNet уже находится близко к
-Yabloko-style по auth module structure. Следующий лучший шаг — маленький
-refactor без поведения:
+Сейчас не стоит делать крупный смешанный рефактор. WorkNet уже находится близко
+к Yabloko-style по auth module structure, но пользователь принял более strict
+naming и embedded SQL как будущие направления.
 
-1. naming/interfaces cleanup (`service` -> `uc/usecase`, `SessionValidator`);
-2. route registration cleanup in `internal/app`;
-3. optional middleware file/name cleanup.
+Рекомендованная последовательность:
 
-`auth_handler.go` не дробить на `json.go` и `cookies.go`. `chi`, embedded SQL и
-более широкий app bootstrap restructuring оставить отдельными решениями, чтобы
-не смешивать interfaces cleanup с dependency/API/runtime risk.
+1. Step A: strict Yabloko naming only.
+2. Step B: embedded SQL only.
+3. Step C: routing migration to `chi` only after separate dependency approval.
+
+`auth_handler.go` не дробить на `json.go` и `cookies.go`. Не переносить usecase
+models в `delivery/transport`. Не переносить repository/usecase ports из
+`usecase/interfaces.go`, потому что это ports конкретного auth usecase/module,
+а не общая dump-zone для interfaces всего проекта.
