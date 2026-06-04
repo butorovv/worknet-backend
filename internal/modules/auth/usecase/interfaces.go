@@ -7,13 +7,10 @@ import (
 	"github.com/butorovv/worknet-backend/internal/modules/auth/domain"
 )
 
-type UserRepository interface {
-	CreatePasswordUser(ctx context.Context, params CreatePasswordUserParams) (domain.User, error)
+type AuthRepository interface {
+	CreatePasswordUser(ctx context.Context, username, email, passwordHash string) (domain.User, error)
 	FindByEmail(ctx context.Context, email string) (domain.User, error)
 	FindByID(ctx context.Context, id domain.UserID) (domain.User, error)
-}
-
-type IdentityRepository interface {
 	PasswordHashByUserID(ctx context.Context, userID domain.UserID) (string, error)
 	TouchPasswordIdentity(ctx context.Context, userID domain.UserID, usedAt time.Time) error
 }

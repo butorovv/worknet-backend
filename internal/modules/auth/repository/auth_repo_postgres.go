@@ -7,21 +7,20 @@ import (
 	"time"
 
 	"github.com/butorovv/worknet-backend/internal/modules/auth/domain"
-	"github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-type PostgresRepository struct {
+type AuthRepoPostgres struct {
 	pool *pgxpool.Pool
 }
 
-func NewPostgresRepository(pool *pgxpool.Pool) *PostgresRepository {
-	return &PostgresRepository{pool: pool}
+func NewAuthRepoPostgres(pool *pgxpool.Pool) *AuthRepoPostgres {
+	return &AuthRepoPostgres{pool: pool}
 }
 
-func (r *PostgresRepository) CreatePasswordUser(ctx context.Context, params usecase.CreatePasswordUserParams) (domain.User, error) {
+func (r *AuthRepoPostgres) CreatePasswordUser(ctx context.Context, username, email, passwordHash string) (domain.User, error) {
 	tx, err := r.pool.BeginTx(ctx, pgx.TxOptions{})
 	if err != nil {
 		return domain.User{}, fmt.Errorf("begin create user transaction: %w", err)
@@ -35,7 +34,7 @@ func (r *PostgresRepository) CreatePasswordUser(ctx context.Context, params usec
 		INSERT INTO users (username, email)
 		VALUES ($1, $2)
 		RETURNING id, username, email, status, created_at, updated_at
-	`, params.Username, params.Email).Scan(
+	`, username, email).Scan(
 		&user.ID,
 		&user.Username,
 		&user.Email,
@@ -50,7 +49,7 @@ func (r *PostgresRepository) CreatePasswordUser(ctx context.Context, params usec
 	_, err = tx.Exec(ctx, `
 		INSERT INTO auth_identities (user_id, provider, password_hash)
 		VALUES ($1, $2, $3)
-	`, user.ID, domain.ProviderPassword, params.PasswordHash)
+	`, user.ID, domain.ProviderPassword, passwordHash)
 	if err != nil {
 		return domain.User{}, mapPostgresError(err)
 	}
@@ -62,7 +61,7 @@ func (r *PostgresRepository) CreatePasswordUser(ctx context.Context, params usec
 	return user, nil
 }
 
-func (r *PostgresRepository) FindByEmail(ctx context.Context, email string) (domain.User, error) {
+func (r *AuthRepoPostgres) FindByEmail(ctx context.Context, email string) (domain.User, error) {
 	return scanUser(r.pool.QueryRow(ctx, `
 		SELECT id, username, email, status, created_at, updated_at
 		FROM users
@@ -71,7 +70,7 @@ func (r *PostgresRepository) FindByEmail(ctx context.Context, email string) (dom
 	`, email))
 }
 
-func (r *PostgresRepository) FindByID(ctx context.Context, id domain.UserID) (domain.User, error) {
+func (r *AuthRepoPostgres) FindByID(ctx context.Context, id domain.UserID) (domain.User, error) {
 	return scanUser(r.pool.QueryRow(ctx, `
 		SELECT id, username, email, status, created_at, updated_at
 		FROM users
@@ -80,7 +79,7 @@ func (r *PostgresRepository) FindByID(ctx context.Context, id domain.UserID) (do
 	`, id))
 }
 
-func (r *PostgresRepository) PasswordHashByUserID(ctx context.Context, userID domain.UserID) (string, error) {
+func (r *AuthRepoPostgres) PasswordHashByUserID(ctx context.Context, userID domain.UserID) (string, error) {
 	var hash string
 	err := r.pool.QueryRow(ctx, `
 		SELECT password_hash
@@ -97,7 +96,7 @@ func (r *PostgresRepository) PasswordHashByUserID(ctx context.Context, userID do
 	return hash, nil
 }
 
-func (r *PostgresRepository) TouchPasswordIdentity(ctx context.Context, userID domain.UserID, usedAt time.Time) error {
+func (r *AuthRepoPostgres) TouchPasswordIdentity(ctx context.Context, userID domain.UserID, usedAt time.Time) error {
 	commandTag, err := r.pool.Exec(ctx, `
 		UPDATE auth_identities
 		SET last_used_at = $2,

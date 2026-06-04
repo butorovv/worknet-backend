@@ -8,7 +8,9 @@ import (
 	"net/http"
 	"time"
 
+	authdelivery "github.com/butorovv/worknet-backend/internal/modules/auth/delivery"
 	authhttp "github.com/butorovv/worknet-backend/internal/modules/auth/delivery/http"
+	authmw "github.com/butorovv/worknet-backend/internal/modules/auth/delivery/middlewares"
 	authrepo "github.com/butorovv/worknet-backend/internal/modules/auth/repository"
 	authusecase "github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
 	"github.com/butorovv/worknet-backend/internal/platform/config"
@@ -52,32 +54,30 @@ func New(ctx context.Context) (*App, error) {
 		return nil, fmt.Errorf("ping redis: %w", err)
 	}
 
-	authRepository := authrepo.NewPostgresRepository(db)
-	sessionStore := authrepo.NewRedisSessionStore(redisClient, "auth:session:")
+	authRepository := authrepo.NewAuthRepoPostgres(db)
+	sessionStore := authrepo.NewSessionRepoRedis(redisClient, "auth:session:")
 
-	authService, err := authusecase.NewService(authusecase.Dependencies{
-		Users:      authRepository,
-		Identities: authRepository,
-		Sessions:   sessionStore,
-		Hasher:     password.NewBcryptHasher(cfg.BcryptCost),
-		Tokens:     token.NewRandomGenerator(32),
-		Clock:      authusecase.RealClock{},
-		SessionTTL: cfg.SessionTTL,
-	})
+	authService, err := authusecase.NewAuthUsecase(
+		authRepository,
+		sessionStore,
+		password.NewBcryptHasher(cfg.BcryptCost),
+		token.NewRandomGenerator(32),
+		cfg.SessionTTL,
+	)
 	if err != nil {
 		db.Close()
 		_ = redisClient.Close()
 		return nil, err
 	}
 
-	cookieConfig := authhttp.CookieConfig{
+	cookieConfig := authdelivery.CookieConfig{
 		Name:   cfg.SessionCookieName,
 		TTL:    cfg.SessionTTL,
 		Secure: cfg.SessionSecure,
 	}
 
 	authHandler := authhttp.NewHandler(authService, cookieConfig)
-	authMiddleware := authhttp.NewMiddleware(authService, cookieConfig)
+	authMiddleware := authmw.NewMiddleware(authService, cookieConfig)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health)

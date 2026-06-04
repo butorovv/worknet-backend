@@ -12,7 +12,7 @@ import (
 func TestRegisterCreatesUserAndSession(t *testing.T) {
 	users := newFakeUsers()
 	sessions := newFakeSessions()
-	service := newTestService(t, users, sessions)
+	service := newTestUsecase(t, users, sessions)
 
 	result, err := service.Register(context.Background(), RegisterCommand{
 		Username: "georgiy",
@@ -37,7 +37,7 @@ func TestRegisterCreatesUserAndSession(t *testing.T) {
 func TestLoginRejectsInvalidPassword(t *testing.T) {
 	users := newFakeUsers()
 	sessions := newFakeSessions()
-	service := newTestService(t, users, sessions)
+	service := newTestUsecase(t, users, sessions)
 
 	_, err := service.Register(context.Background(), RegisterCommand{
 		Username: "georgiy",
@@ -60,7 +60,7 @@ func TestLoginRejectsInvalidPassword(t *testing.T) {
 func TestValidateSessionReturnsCurrentUser(t *testing.T) {
 	users := newFakeUsers()
 	sessions := newFakeSessions()
-	service := newTestService(t, users, sessions)
+	service := newTestUsecase(t, users, sessions)
 
 	result, err := service.Register(context.Background(), RegisterCommand{
 		Username: "georgiy",
@@ -82,20 +82,19 @@ func TestValidateSessionReturnsCurrentUser(t *testing.T) {
 	}
 }
 
-func newTestService(t *testing.T, users *fakeUsers, sessions *fakeSessions) *Service {
+func newTestUsecase(t *testing.T, users *fakeUsers, sessions *fakeSessions) *AuthUsecase {
 	t.Helper()
 
-	service, err := NewService(Dependencies{
-		Users:      users,
-		Identities: users,
-		Sessions:   sessions,
-		Hasher:     fakeHasher{},
-		Tokens:     &fakeTokens{},
-		Clock:      fakeClock{now: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)},
-		SessionTTL: 30 * 24 * time.Hour,
-	})
+	service, err := newAuthUsecase(
+		users,
+		sessions,
+		fakeHasher{},
+		&fakeTokens{},
+		fakeClock{now: time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)},
+		30*24*time.Hour,
+	)
 	if err != nil {
-		t.Fatalf("NewService() error = %v", err)
+		t.Fatalf("NewAuthUsecase() error = %v", err)
 	}
 	return service
 }
@@ -116,8 +115,8 @@ func newFakeUsers() *fakeUsers {
 	}
 }
 
-func (f *fakeUsers) CreatePasswordUser(_ context.Context, params CreatePasswordUserParams) (domain.User, error) {
-	if _, ok := f.byEmail[params.Email]; ok {
+func (f *fakeUsers) CreatePasswordUser(_ context.Context, username, email, passwordHash string) (domain.User, error) {
+	if _, ok := f.byEmail[email]; ok {
 		return domain.User{}, domain.ErrUserAlreadyExists
 	}
 
@@ -125,15 +124,15 @@ func (f *fakeUsers) CreatePasswordUser(_ context.Context, params CreatePasswordU
 	f.nextID++
 	user := domain.User{
 		ID:        id,
-		Username:  params.Username,
-		Email:     params.Email,
+		Username:  username,
+		Email:     email,
 		Status:    domain.UserStatusActive,
 		CreatedAt: time.Now(),
 		UpdatedAt: time.Now(),
 	}
 	f.byID[id] = user
-	f.byEmail[params.Email] = id
-	f.hashByID[id] = params.PasswordHash
+	f.byEmail[email] = id
+	f.hashByID[id] = passwordHash
 	return user, nil
 }
 

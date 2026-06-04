@@ -10,7 +10,7 @@ import (
 	"github.com/redis/go-redis/v9"
 )
 
-type RedisSessionStore struct {
+type SessionRepoRedis struct {
 	client *redis.Client
 	prefix string
 }
@@ -21,17 +21,17 @@ type redisSessionPayload struct {
 	ExpiresAt time.Time `json:"expires_at"`
 }
 
-func NewRedisSessionStore(client *redis.Client, prefix string) *RedisSessionStore {
+func NewSessionRepoRedis(client *redis.Client, prefix string) *SessionRepoRedis {
 	if prefix == "" {
 		prefix = "auth:session:"
 	}
-	return &RedisSessionStore{
+	return &SessionRepoRedis{
 		client: client,
 		prefix: prefix,
 	}
 }
 
-func (s *RedisSessionStore) Create(ctx context.Context, session domain.Session) error {
+func (s *SessionRepoRedis) Create(ctx context.Context, session domain.Session) error {
 	ttl := time.Until(session.ExpiresAt)
 	if ttl <= 0 {
 		return domain.ErrInvalidInput
@@ -52,7 +52,7 @@ func (s *RedisSessionStore) Create(ctx context.Context, session domain.Session) 
 	return nil
 }
 
-func (s *RedisSessionStore) Get(ctx context.Context, sessionID string) (domain.Session, error) {
+func (s *SessionRepoRedis) Get(ctx context.Context, sessionID string) (domain.Session, error) {
 	value, err := s.client.Get(ctx, s.key(sessionID)).Bytes()
 	if err != nil {
 		if err == redis.Nil {
@@ -74,13 +74,17 @@ func (s *RedisSessionStore) Get(ctx context.Context, sessionID string) (domain.S
 	}, nil
 }
 
-func (s *RedisSessionStore) Delete(ctx context.Context, sessionID string) error {
-	if err := s.client.Del(ctx, s.key(sessionID)).Err(); err != nil {
+func (s *SessionRepoRedis) Delete(ctx context.Context, sessionID string) error {
+	deleted, err := s.client.Del(ctx, s.key(sessionID)).Result()
+	if err != nil {
 		return fmt.Errorf("delete redis session: %w", err)
+	}
+	if deleted == 0 {
+		return domain.ErrSessionNotFound
 	}
 	return nil
 }
 
-func (s *RedisSessionStore) key(sessionID string) string {
+func (s *SessionRepoRedis) key(sessionID string) string {
 	return s.prefix + sessionID
 }
