@@ -17,32 +17,25 @@ import (
 
 const maxJSONBodyBytes int64 = 1 << 20
 
-type AuthUsecase interface {
+type AuthUseCaseInterface interface {
 	Register(ctx context.Context, cmd usecase.RegisterCommand) (usecase.AuthResult, error)
 	Login(ctx context.Context, cmd usecase.LoginCommand) (usecase.AuthResult, error)
 	Logout(ctx context.Context, cmd usecase.LogoutCommand) error
 }
 
-type Handler struct {
-	uc      AuthUsecase
+type AuthHandler struct {
+	uc      AuthUseCaseInterface
 	cookies authdelivery.CookieConfig
 }
 
-func NewHandler(uc AuthUsecase, cookies authdelivery.CookieConfig) *Handler {
-	return &Handler{
+func NewAuthHandler(uc AuthUseCaseInterface, cookies authdelivery.CookieConfig) *AuthHandler {
+	return &AuthHandler{
 		uc:      uc,
 		cookies: cookies,
 	}
 }
 
-func RegisterRoutes(mux *http.ServeMux, handler *Handler, middleware *middlewares.Middleware) {
-	mux.HandleFunc("/api/v1/auth/register", handler.Register)
-	mux.HandleFunc("/api/v1/auth/login", handler.Login)
-	mux.Handle("/api/v1/auth/logout", middleware.RequireAuth(http.HandlerFunc(handler.Logout)))
-	mux.Handle("/api/v1/auth/me", middleware.RequireAuth(http.HandlerFunc(handler.Me)))
-}
-
-func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Register(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.MethodNotAllowed(w)
 		return
@@ -67,7 +60,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusCreated, transport.ToAuthResponse(result))
 }
 
-func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.MethodNotAllowed(w)
 		return
@@ -91,7 +84,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, transport.ToAuthResponse(result))
 }
 
-func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		httpx.MethodNotAllowed(w)
 		return
@@ -112,7 +105,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
+func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		httpx.MethodNotAllowed(w)
 		return
@@ -127,7 +120,7 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 	httpx.WriteJSON(w, http.StatusOK, transport.AuthResponse{User: transport.ToUserResponse(user)})
 }
 
-func (h *Handler) setSessionCookie(w http.ResponseWriter, sessionID string) {
+func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, sessionID string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookies.Name,
 		Value:    sessionID,
@@ -139,7 +132,7 @@ func (h *Handler) setSessionCookie(w http.ResponseWriter, sessionID string) {
 	})
 }
 
-func (h *Handler) clearSessionCookie(w http.ResponseWriter) {
+func (h *AuthHandler) clearSessionCookie(w http.ResponseWriter) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cookies.Name,
 		Value:    "",

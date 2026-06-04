@@ -13,7 +13,7 @@ import (
 
 var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{2,29}$`)
 
-type AuthUsecase struct {
+type authUseCase struct {
 	repo       AuthRepository
 	sessions   SessionStore
 	hasher     PasswordHasher
@@ -22,24 +22,24 @@ type AuthUsecase struct {
 	sessionTTL time.Duration
 }
 
-func NewAuthUsecase(
+func NewAuthUseCase(
 	repo AuthRepository,
 	sessions SessionStore,
 	hasher PasswordHasher,
 	tokens SessionTokenGenerator,
 	sessionTTL time.Duration,
-) (*AuthUsecase, error) {
-	return newAuthUsecase(repo, sessions, hasher, tokens, RealClock{}, sessionTTL)
+) (*authUseCase, error) {
+	return newAuthUseCase(repo, sessions, hasher, tokens, RealClock{}, sessionTTL)
 }
 
-func newAuthUsecase(
+func newAuthUseCase(
 	repo AuthRepository,
 	sessions SessionStore,
 	hasher PasswordHasher,
 	tokens SessionTokenGenerator,
 	clock Clock,
 	sessionTTL time.Duration,
-) (*AuthUsecase, error) {
+) (*authUseCase, error) {
 	if repo == nil {
 		return nil, errors.New("auth repository is required")
 	}
@@ -59,7 +59,7 @@ func newAuthUsecase(
 		return nil, errors.New("auth session ttl must be positive")
 	}
 
-	return &AuthUsecase{
+	return &authUseCase{
 		repo:       repo,
 		sessions:   sessions,
 		hasher:     hasher,
@@ -69,7 +69,7 @@ func newAuthUsecase(
 	}, nil
 }
 
-func (s *AuthUsecase) Register(ctx context.Context, cmd RegisterCommand) (AuthResult, error) {
+func (s *authUseCase) Register(ctx context.Context, cmd RegisterCommand) (AuthResult, error) {
 	username := strings.TrimSpace(cmd.Username)
 	email := normalizeEmail(cmd.Email)
 	password := cmd.Password
@@ -91,7 +91,7 @@ func (s *AuthUsecase) Register(ctx context.Context, cmd RegisterCommand) (AuthRe
 	return s.createSession(ctx, user)
 }
 
-func (s *AuthUsecase) Login(ctx context.Context, cmd LoginCommand) (AuthResult, error) {
+func (s *authUseCase) Login(ctx context.Context, cmd LoginCommand) (AuthResult, error) {
 	email := normalizeEmail(cmd.Email)
 	password := cmd.Password
 
@@ -129,7 +129,7 @@ func (s *AuthUsecase) Login(ctx context.Context, cmd LoginCommand) (AuthResult, 
 	return s.createSessionAt(ctx, user, now)
 }
 
-func (s *AuthUsecase) Logout(ctx context.Context, cmd LogoutCommand) error {
+func (s *authUseCase) Logout(ctx context.Context, cmd LogoutCommand) error {
 	sessionID := strings.TrimSpace(cmd.SessionID)
 	if sessionID == "" {
 		return domain.ErrSessionNotFound
@@ -137,7 +137,7 @@ func (s *AuthUsecase) Logout(ctx context.Context, cmd LogoutCommand) error {
 	return s.sessions.Delete(ctx, sessionID)
 }
 
-func (s *AuthUsecase) ValidateSession(ctx context.Context, cmd ValidateSessionCommand) (CurrentUser, error) {
+func (s *authUseCase) ValidateSession(ctx context.Context, cmd ValidateSessionCommand) (CurrentUser, error) {
 	sessionID := strings.TrimSpace(cmd.SessionID)
 	if sessionID == "" {
 		return CurrentUser{}, domain.ErrSessionNotFound
@@ -159,11 +159,11 @@ func (s *AuthUsecase) ValidateSession(ctx context.Context, cmd ValidateSessionCo
 	return currentUserFromDomain(user), nil
 }
 
-func (s *AuthUsecase) createSession(ctx context.Context, user domain.User) (AuthResult, error) {
+func (s *authUseCase) createSession(ctx context.Context, user domain.User) (AuthResult, error) {
 	return s.createSessionAt(ctx, user, s.clock.Now())
 }
 
-func (s *AuthUsecase) createSessionAt(ctx context.Context, user domain.User, now time.Time) (AuthResult, error) {
+func (s *authUseCase) createSessionAt(ctx context.Context, user domain.User, now time.Time) (AuthResult, error) {
 	sessionID, err := s.tokens.Generate(ctx)
 	if err != nil {
 		return AuthResult{}, fmt.Errorf("generate session token: %w", err)

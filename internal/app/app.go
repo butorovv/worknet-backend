@@ -57,7 +57,7 @@ func New(ctx context.Context) (*App, error) {
 	authRepository := authrepo.NewAuthRepoPostgres(db)
 	sessionStore := authrepo.NewSessionRepoRedis(redisClient, "auth:session:")
 
-	authUsecase, err := authusecase.NewAuthUsecase(
+	authUsecase, err := authusecase.NewAuthUseCase(
 		authRepository,
 		sessionStore,
 		password.NewBcryptHasher(cfg.BcryptCost),
@@ -76,12 +76,12 @@ func New(ctx context.Context) (*App, error) {
 		Secure: cfg.SessionSecure,
 	}
 
-	authHandler := authhttp.NewHandler(authUsecase, cookieConfig)
+	authHandler := authhttp.NewAuthHandler(authUsecase, cookieConfig)
 	authMiddleware := authmw.NewMiddleware(authUsecase, cookieConfig)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health)
-	authhttp.RegisterRoutes(mux, authHandler, authMiddleware)
+	registerAuthRoutes(mux, authHandler, authMiddleware)
 
 	return &App{
 		cfg: cfg,
@@ -117,6 +117,13 @@ func (a *App) Shutdown(ctx context.Context) error {
 
 func (a *App) ShutdownTimeout() time.Duration {
 	return a.cfg.ShutdownTimeout
+}
+
+func registerAuthRoutes(mux *http.ServeMux, handler *authhttp.AuthHandler, middleware *authmw.Middleware) {
+	mux.HandleFunc("/api/v1/auth/register", handler.Register)
+	mux.HandleFunc("/api/v1/auth/login", handler.Login)
+	mux.Handle("/api/v1/auth/logout", middleware.RequireAuth(http.HandlerFunc(handler.Logout)))
+	mux.Handle("/api/v1/auth/me", middleware.RequireAuth(http.HandlerFunc(handler.Me)))
 }
 
 func health(w http.ResponseWriter, r *http.Request) {

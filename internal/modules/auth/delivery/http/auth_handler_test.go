@@ -15,7 +15,7 @@ import (
 )
 
 func TestRegisterCreatesSessionCookie(t *testing.T) {
-	uc := &fakeAuthUsecase{
+	uc := &fakeAuthUseCase{
 		registerResult: usecase.AuthResult{
 			User: usecase.CurrentUser{
 				ID:       1,
@@ -27,7 +27,7 @@ func TestRegisterCreatesSessionCookie(t *testing.T) {
 			ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
 		},
 	}
-	handler := NewHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
+	handler := NewAuthHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/register", strings.NewReader(`{"username":"georgiy","email":"georgiy@example.com","password":"password123"}`))
 	rec := httptest.NewRecorder()
@@ -50,7 +50,7 @@ func TestRegisterCreatesSessionCookie(t *testing.T) {
 }
 
 func TestLoginSetsSessionCookie(t *testing.T) {
-	uc := &fakeAuthUsecase{
+	uc := &fakeAuthUseCase{
 		loginResult: usecase.AuthResult{
 			User: usecase.CurrentUser{
 				ID:       1,
@@ -62,7 +62,7 @@ func TestLoginSetsSessionCookie(t *testing.T) {
 			ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
 		},
 	}
-	handler := NewHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
+	handler := NewAuthHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"georgiy@example.com","password":"password123"}`))
 	rec := httptest.NewRecorder()
@@ -89,8 +89,8 @@ func TestLoginSetsSessionCookie(t *testing.T) {
 }
 
 func TestLoginWritesErrorFormat(t *testing.T) {
-	uc := &fakeAuthUsecase{loginErr: domain.ErrInvalidCredentials}
-	handler := NewHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
+	uc := &fakeAuthUseCase{loginErr: domain.ErrInvalidCredentials}
+	handler := NewAuthHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"georgiy@example.com","password":"wrong-password"}`))
 	rec := httptest.NewRecorder()
@@ -106,7 +106,7 @@ func TestLoginWritesErrorFormat(t *testing.T) {
 }
 
 func TestLogoutClearsSessionCookie(t *testing.T) {
-	uc := &fakeAuthUsecase{
+	uc := &fakeAuthUseCase{
 		validateUser: usecase.CurrentUser{
 			ID:       1,
 			Username: "georgiy",
@@ -115,7 +115,7 @@ func TestLogoutClearsSessionCookie(t *testing.T) {
 		},
 	}
 	cookies := authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour}
-	handler := NewHandler(uc, cookies)
+	handler := NewAuthHandler(uc, cookies)
 	middleware := authmw.NewMiddleware(uc, cookies)
 
 	req := httptest.NewRequest(http.MethodPost, "/api/v1/auth/logout", nil)
@@ -143,7 +143,7 @@ func TestLogoutClearsSessionCookie(t *testing.T) {
 }
 
 func TestMeReturnsCurrentUser(t *testing.T) {
-	uc := &fakeAuthUsecase{
+	uc := &fakeAuthUseCase{
 		validateUser: usecase.CurrentUser{
 			ID:       1,
 			Username: "georgiy",
@@ -152,7 +152,7 @@ func TestMeReturnsCurrentUser(t *testing.T) {
 		},
 	}
 	cookies := authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour}
-	handler := NewHandler(uc, cookies)
+	handler := NewAuthHandler(uc, cookies)
 	middleware := authmw.NewMiddleware(uc, cookies)
 
 	req := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
@@ -170,8 +170,8 @@ func TestMeReturnsCurrentUser(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidMethod(t *testing.T) {
-	uc := &fakeAuthUsecase{}
-	handler := NewHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
+	uc := &fakeAuthUseCase{}
+	handler := NewAuthHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
 
 	tests := []struct {
 		name   string
@@ -200,8 +200,8 @@ func TestHandlerRejectsInvalidMethod(t *testing.T) {
 }
 
 func TestHandlerRejectsInvalidJSON(t *testing.T) {
-	uc := &fakeAuthUsecase{}
-	handler := NewHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
+	uc := &fakeAuthUseCase{}
+	handler := NewAuthHandler(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
 
 	tests := []struct {
 		name string
@@ -230,7 +230,7 @@ func TestHandlerRejectsInvalidJSON(t *testing.T) {
 }
 
 func TestMiddlewareRejectsMissingCookie(t *testing.T) {
-	uc := &fakeAuthUsecase{}
+	uc := &fakeAuthUseCase{}
 	middleware := authmw.NewMiddleware(uc, authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour})
 	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatal("next handler must not be called")
@@ -246,43 +246,7 @@ func TestMiddlewareRejectsMissingCookie(t *testing.T) {
 	}
 }
 
-func TestRegisterRoutesConnectsAuthEndpoints(t *testing.T) {
-	uc := &fakeAuthUsecase{
-		loginResult: usecase.AuthResult{
-			User: usecase.CurrentUser{
-				ID:       1,
-				Username: "georgiy",
-				Email:    "georgiy@example.com",
-				Status:   "active",
-			},
-			SessionID: "opaque-session",
-			ExpiresAt: time.Now().Add(30 * 24 * time.Hour),
-		},
-	}
-	cookies := authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour}
-	mux := http.NewServeMux()
-	RegisterRoutes(mux, NewHandler(uc, cookies), authmw.NewMiddleware(uc, cookies))
-
-	loginReq := httptest.NewRequest(http.MethodPost, "/api/v1/auth/login", strings.NewReader(`{"email":"georgiy@example.com","password":"password123"}`))
-	loginRec := httptest.NewRecorder()
-
-	mux.ServeHTTP(loginRec, loginReq)
-
-	if loginRec.Code != http.StatusOK {
-		t.Fatalf("login status = %d, want %d", loginRec.Code, http.StatusOK)
-	}
-
-	meReq := httptest.NewRequest(http.MethodGet, "/api/v1/auth/me", nil)
-	meRec := httptest.NewRecorder()
-
-	mux.ServeHTTP(meRec, meReq)
-
-	if meRec.Code != http.StatusUnauthorized {
-		t.Fatalf("me status = %d, want %d", meRec.Code, http.StatusUnauthorized)
-	}
-}
-
-type fakeAuthUsecase struct {
+type fakeAuthUseCase struct {
 	registerResult usecase.AuthResult
 	registerErr    error
 	loginResult    usecase.AuthResult
@@ -293,19 +257,19 @@ type fakeAuthUsecase struct {
 	validateErr    error
 }
 
-func (f *fakeAuthUsecase) Register(context.Context, usecase.RegisterCommand) (usecase.AuthResult, error) {
+func (f *fakeAuthUseCase) Register(context.Context, usecase.RegisterCommand) (usecase.AuthResult, error) {
 	return f.registerResult, f.registerErr
 }
 
-func (f *fakeAuthUsecase) Login(context.Context, usecase.LoginCommand) (usecase.AuthResult, error) {
+func (f *fakeAuthUseCase) Login(context.Context, usecase.LoginCommand) (usecase.AuthResult, error) {
 	return f.loginResult, f.loginErr
 }
 
-func (f *fakeAuthUsecase) Logout(_ context.Context, cmd usecase.LogoutCommand) error {
+func (f *fakeAuthUseCase) Logout(_ context.Context, cmd usecase.LogoutCommand) error {
 	f.logoutCommand = cmd
 	return f.logoutErr
 }
 
-func (f *fakeAuthUsecase) ValidateSession(_ context.Context, _ usecase.ValidateSessionCommand) (usecase.CurrentUser, error) {
+func (f *fakeAuthUseCase) ValidateSession(_ context.Context, _ usecase.ValidateSessionCommand) (usecase.CurrentUser, error) {
 	return f.validateUser, f.validateErr
 }

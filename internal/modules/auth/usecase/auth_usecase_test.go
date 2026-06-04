@@ -82,10 +82,10 @@ func TestValidateSessionReturnsCurrentUser(t *testing.T) {
 	}
 }
 
-func newTestUsecase(t *testing.T, users *fakeUsers, sessions *fakeSessions) *AuthUsecase {
+func newTestUsecase(t *testing.T, users *fakeUsers, sessions *fakeSessions) *authUseCase {
 	t.Helper()
 
-	uc, err := newAuthUsecase(
+	uc, err := newAuthUseCase(
 		users,
 		sessions,
 		fakeHasher{},
@@ -94,7 +94,7 @@ func newTestUsecase(t *testing.T, users *fakeUsers, sessions *fakeSessions) *Aut
 		30*24*time.Hour,
 	)
 	if err != nil {
-		t.Fatalf("NewAuthUsecase() error = %v", err)
+		t.Fatalf("NewAuthUseCase() error = %v", err)
 	}
 	return uc
 }
