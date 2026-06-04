@@ -1,35 +1,35 @@
-package authhttp
+package transport
 
 import "github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
 
-type registerRequest struct {
+type RegisterRequest struct {
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type loginRequest struct {
+type LoginRequest struct {
 	Email    string `json:"email"`
 	Password string `json:"password"`
 }
 
-type authResponse struct {
-	User userResponse `json:"user"`
+type AuthResponse struct {
+	User UserResponse `json:"user"`
 }
 
-type userResponse struct {
+type UserResponse struct {
 	ID       int64  `json:"id"`
 	Username string `json:"username"`
 	Email    string `json:"email"`
 	Status   string `json:"status"`
 }
 
-func authResultResponse(result usecase.AuthResult) authResponse {
-	return authResponse{User: userResponseFromCurrent(result.User)}
+func ToAuthResponse(result usecase.AuthResult) AuthResponse {
+	return AuthResponse{User: ToUserResponse(result.User)}
 }
 
-func userResponseFromCurrent(user usecase.CurrentUser) userResponse {
-	return userResponse{
+func ToUserResponse(user usecase.CurrentUser) UserResponse {
+	return UserResponse{
 		ID:       user.ID,
 		Username: user.Username,
 		Email:    user.Email,

@@ -1,14 +1,21 @@
-package authhttp
+package delivery
 
 import (
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/butorovv/worknet-backend/internal/modules/auth/domain"
 	"github.com/butorovv/worknet-backend/internal/platform/httpx"
 )
 
-func writeUsecaseError(w http.ResponseWriter, err error) {
+type CookieConfig struct {
+	Name   string
+	TTL    time.Duration
+	Secure bool
+}
+
+func WriteUsecaseError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, domain.ErrInvalidInput):
 		httpx.WriteError(w, http.StatusBadRequest, "invalid_request", "Invalid request")

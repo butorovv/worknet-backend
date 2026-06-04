@@ -13,19 +13,8 @@ import (
 
 var usernamePattern = regexp.MustCompile(`^[a-zA-Z0-9_][a-zA-Z0-9_.-]{2,29}$`)
 
-type Dependencies struct {
-	Users      UserRepository
-	Identities IdentityRepository
-	Sessions   SessionStore
-	Hasher     PasswordHasher
-	Tokens     SessionTokenGenerator
-	Clock      Clock
-	SessionTTL time.Duration
-}
-
-type Service struct {
-	users      UserRepository
-	identities IdentityRepository
+type AuthUsecase struct {
+	repo       AuthRepository
 	sessions   SessionStore
 	hasher     PasswordHasher
 	tokens     SessionTokenGenerator
@@ -33,41 +22,54 @@ type Service struct {
 	sessionTTL time.Duration
 }
 
-func NewService(deps Dependencies) (*Service, error) {
-	if deps.Users == nil {
-		return nil, errors.New("auth users repository is required")
+func NewAuthUsecase(
+	repo AuthRepository,
+	sessions SessionStore,
+	hasher PasswordHasher,
+	tokens SessionTokenGenerator,
+	sessionTTL time.Duration,
+) (*AuthUsecase, error) {
+	return newAuthUsecase(repo, sessions, hasher, tokens, RealClock{}, sessionTTL)
+}
+
+func newAuthUsecase(
+	repo AuthRepository,
+	sessions SessionStore,
+	hasher PasswordHasher,
+	tokens SessionTokenGenerator,
+	clock Clock,
+	sessionTTL time.Duration,
+) (*AuthUsecase, error) {
+	if repo == nil {
+		return nil, errors.New("auth repository is required")
 	}
-	if deps.Identities == nil {
-		return nil, errors.New("auth identities repository is required")
-	}
-	if deps.Sessions == nil {
+	if sessions == nil {
 		return nil, errors.New("auth session store is required")
 	}
-	if deps.Hasher == nil {
+	if hasher == nil {
 		return nil, errors.New("auth password hasher is required")
 	}
-	if deps.Tokens == nil {
+	if tokens == nil {
 		return nil, errors.New("auth session token generator is required")
 	}
-	if deps.Clock == nil {
-		deps.Clock = RealClock{}
+	if clock == nil {
+		clock = RealClock{}
 	}
-	if deps.SessionTTL <= 0 {
+	if sessionTTL <= 0 {
 		return nil, errors.New("auth session ttl must be positive")
 	}
 
-	return &Service{
-		users:      deps.Users,
-		identities: deps.Identities,
-		sessions:   deps.Sessions,
-		hasher:     deps.Hasher,
-		tokens:     deps.Tokens,
-		clock:      deps.Clock,
-		sessionTTL: deps.SessionTTL,
+	return &AuthUsecase{
+		repo:       repo,
+		sessions:   sessions,
+		hasher:     hasher,
+		tokens:     tokens,
+		clock:      clock,
+		sessionTTL: sessionTTL,
 	}, nil
 }
 
-func (s *Service) Register(ctx context.Context, cmd RegisterCommand) (AuthResult, error) {
+func (s *AuthUsecase) Register(ctx context.Context, cmd RegisterCommand) (AuthResult, error) {
 	username := strings.TrimSpace(cmd.Username)
 	email := normalizeEmail(cmd.Email)
 	password := cmd.Password
@@ -81,11 +83,7 @@ func (s *Service) Register(ctx context.Context, cmd RegisterCommand) (AuthResult
 		return AuthResult{}, fmt.Errorf("hash password: %w", err)
 	}
 
-	user, err := s.users.CreatePasswordUser(ctx, CreatePasswordUserParams{
-		Username:     username,
-		Email:        email,
-		PasswordHash: passwordHash,
-	})
+	user, err := s.repo.CreatePasswordUser(ctx, username, email, passwordHash)
 	if err != nil {
 		return AuthResult{}, err
 	}
@@ -93,7 +91,7 @@ func (s *Service) Register(ctx context.Context, cmd RegisterCommand) (AuthResult
 	return s.createSession(ctx, user)
 }
 
-func (s *Service) Login(ctx context.Context, cmd LoginCommand) (AuthResult, error) {
+func (s *AuthUsecase) Login(ctx context.Context, cmd LoginCommand) (AuthResult, error) {
 	email := normalizeEmail(cmd.Email)
 	password := cmd.Password
 
@@ -101,7 +99,7 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (AuthResult, erro
 		return AuthResult{}, domain.ErrInvalidCredentials
 	}
 
-	user, err := s.users.FindByEmail(ctx, email)
+	user, err := s.repo.FindByEmail(ctx, email)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			return AuthResult{}, domain.ErrInvalidCredentials
@@ -112,7 +110,7 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (AuthResult, erro
 		return AuthResult{}, domain.ErrUserInactive
 	}
 
-	passwordHash, err := s.identities.PasswordHashByUserID(ctx, user.ID)
+	passwordHash, err := s.repo.PasswordHashByUserID(ctx, user.ID)
 	if err != nil {
 		if errors.Is(err, domain.ErrUserNotFound) {
 			return AuthResult{}, domain.ErrInvalidCredentials
@@ -124,14 +122,14 @@ func (s *Service) Login(ctx context.Context, cmd LoginCommand) (AuthResult, erro
 	}
 
 	now := s.clock.Now()
-	if err := s.identities.TouchPasswordIdentity(ctx, user.ID, now); err != nil {
+	if err := s.repo.TouchPasswordIdentity(ctx, user.ID, now); err != nil {
 		return AuthResult{}, err
 	}
 
 	return s.createSessionAt(ctx, user, now)
 }
 
-func (s *Service) Logout(ctx context.Context, cmd LogoutCommand) error {
+func (s *AuthUsecase) Logout(ctx context.Context, cmd LogoutCommand) error {
 	sessionID := strings.TrimSpace(cmd.SessionID)
 	if sessionID == "" {
 		return domain.ErrSessionNotFound
@@ -139,7 +137,7 @@ func (s *Service) Logout(ctx context.Context, cmd LogoutCommand) error {
 	return s.sessions.Delete(ctx, sessionID)
 }
 
-func (s *Service) ValidateSession(ctx context.Context, cmd ValidateSessionCommand) (CurrentUser, error) {
+func (s *AuthUsecase) ValidateSession(ctx context.Context, cmd ValidateSessionCommand) (CurrentUser, error) {
 	sessionID := strings.TrimSpace(cmd.SessionID)
 	if sessionID == "" {
 		return CurrentUser{}, domain.ErrSessionNotFound
@@ -150,7 +148,7 @@ func (s *Service) ValidateSession(ctx context.Context, cmd ValidateSessionComman
 		return CurrentUser{}, err
 	}
 
-	user, err := s.users.FindByID(ctx, session.UserID)
+	user, err := s.repo.FindByID(ctx, session.UserID)
 	if err != nil {
 		return CurrentUser{}, err
 	}
@@ -161,11 +159,11 @@ func (s *Service) ValidateSession(ctx context.Context, cmd ValidateSessionComman
 	return currentUserFromDomain(user), nil
 }
 
-func (s *Service) createSession(ctx context.Context, user domain.User) (AuthResult, error) {
+func (s *AuthUsecase) createSession(ctx context.Context, user domain.User) (AuthResult, error) {
 	return s.createSessionAt(ctx, user, s.clock.Now())
 }
 
-func (s *Service) createSessionAt(ctx context.Context, user domain.User, now time.Time) (AuthResult, error) {
+func (s *AuthUsecase) createSessionAt(ctx context.Context, user domain.User, now time.Time) (AuthResult, error) {
 	sessionID, err := s.tokens.Generate(ctx)
 	if err != nil {
 		return AuthResult{}, fmt.Errorf("generate session token: %w", err)

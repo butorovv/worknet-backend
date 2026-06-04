@@ -6,8 +6,11 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"time"
 
+	authdelivery "github.com/butorovv/worknet-backend/internal/modules/auth/delivery"
+	"github.com/butorovv/worknet-backend/internal/modules/auth/delivery/middlewares"
+	"github.com/butorovv/worknet-backend/internal/modules/auth/delivery/transport"
+	"github.com/butorovv/worknet-backend/internal/modules/auth/domain"
 	"github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
 	"github.com/butorovv/worknet-backend/internal/platform/httpx"
 )
@@ -18,28 +21,21 @@ type AuthService interface {
 	Register(ctx context.Context, cmd usecase.RegisterCommand) (usecase.AuthResult, error)
 	Login(ctx context.Context, cmd usecase.LoginCommand) (usecase.AuthResult, error)
 	Logout(ctx context.Context, cmd usecase.LogoutCommand) error
-	ValidateSession(ctx context.Context, cmd usecase.ValidateSessionCommand) (usecase.CurrentUser, error)
-}
-
-type CookieConfig struct {
-	Name   string
-	TTL    time.Duration
-	Secure bool
 }
 
 type Handler struct {
 	service AuthService
-	cookies CookieConfig
+	cookies authdelivery.CookieConfig
 }
 
-func NewHandler(service AuthService, cookies CookieConfig) *Handler {
+func NewHandler(service AuthService, cookies authdelivery.CookieConfig) *Handler {
 	return &Handler{
 		service: service,
 		cookies: cookies,
 	}
 }
 
-func RegisterRoutes(mux *http.ServeMux, handler *Handler, middleware *Middleware) {
+func RegisterRoutes(mux *http.ServeMux, handler *Handler, middleware *middlewares.Middleware) {
 	mux.HandleFunc("/api/v1/auth/register", handler.Register)
 	mux.HandleFunc("/api/v1/auth/login", handler.Login)
 	mux.Handle("/api/v1/auth/logout", middleware.RequireAuth(http.HandlerFunc(handler.Logout)))
@@ -52,7 +48,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var request registerRequest
+	var request transport.RegisterRequest
 	if !decodeJSON(w, r, &request) {
 		return
 	}
@@ -63,12 +59,12 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		Password: request.Password,
 	})
 	if err != nil {
-		writeUsecaseError(w, err)
+		authdelivery.WriteUsecaseError(w, err)
 		return
 	}
 
 	h.setSessionCookie(w, result.SessionID)
-	httpx.WriteJSON(w, http.StatusCreated, authResultResponse(result))
+	httpx.WriteJSON(w, http.StatusCreated, transport.ToAuthResponse(result))
 }
 
 func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
@@ -77,7 +73,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var request loginRequest
+	var request transport.LoginRequest
 	if !decodeJSON(w, r, &request) {
 		return
 	}
@@ -87,12 +83,12 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		Password: request.Password,
 	})
 	if err != nil {
-		writeUsecaseError(w, err)
+		authdelivery.WriteUsecaseError(w, err)
 		return
 	}
 
 	h.setSessionCookie(w, result.SessionID)
-	httpx.WriteJSON(w, http.StatusOK, authResultResponse(result))
+	httpx.WriteJSON(w, http.StatusOK, transport.ToAuthResponse(result))
 }
 
 func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -101,14 +97,14 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	sessionID, ok := SessionIDFromContext(r.Context())
+	sessionID, ok := middlewares.SessionIDFromContext(r.Context())
 	if !ok {
-		writeUsecaseError(w, usecaseSessionNotFound())
+		authdelivery.WriteUsecaseError(w, domain.ErrSessionNotFound)
 		return
 	}
 
 	if err := h.service.Logout(r.Context(), usecase.LogoutCommand{SessionID: sessionID}); err != nil {
-		writeUsecaseError(w, err)
+		authdelivery.WriteUsecaseError(w, err)
 		return
 	}
 
@@ -122,13 +118,13 @@ func (h *Handler) Me(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	user, ok := CurrentUserFromContext(r.Context())
+	user, ok := middlewares.CurrentUserFromContext(r.Context())
 	if !ok {
-		writeUsecaseError(w, usecaseSessionNotFound())
+		authdelivery.WriteUsecaseError(w, domain.ErrSessionNotFound)
 		return
 	}
 
-	httpx.WriteJSON(w, http.StatusOK, authResponse{User: userResponseFromCurrent(user)})
+	httpx.WriteJSON(w, http.StatusOK, transport.AuthResponse{User: transport.ToUserResponse(user)})
 }
 
 func (h *Handler) setSessionCookie(w http.ResponseWriter, sessionID string) {

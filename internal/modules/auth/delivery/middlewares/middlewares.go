@@ -1,19 +1,24 @@
-package authhttp
+package middlewares
 
 import (
+	"context"
 	"net/http"
 
-	"github.com/butorovv/worknet-backend/internal/modules/auth/domain"
+	authdelivery "github.com/butorovv/worknet-backend/internal/modules/auth/delivery"
 	"github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
 	"github.com/butorovv/worknet-backend/internal/platform/httpx"
 )
 
-type Middleware struct {
-	service AuthService
-	cookies CookieConfig
+type AuthUsecase interface {
+	ValidateSession(ctx context.Context, cmd usecase.ValidateSessionCommand) (usecase.CurrentUser, error)
 }
 
-func NewMiddleware(service AuthService, cookies CookieConfig) *Middleware {
+type Middleware struct {
+	service AuthUsecase
+	cookies authdelivery.CookieConfig
+}
+
+func NewMiddleware(service AuthUsecase, cookies authdelivery.CookieConfig) *Middleware {
 	return &Middleware{
 		service: service,
 		cookies: cookies,
@@ -32,15 +37,11 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			SessionID: cookie.Value,
 		})
 		if err != nil {
-			writeUsecaseError(w, err)
+			authdelivery.WriteUsecaseError(w, err)
 			return
 		}
 
 		ctx := withAuthContext(r.Context(), cookie.Value, user)
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
-}
-
-func usecaseSessionNotFound() error {
-	return domain.ErrSessionNotFound
 }

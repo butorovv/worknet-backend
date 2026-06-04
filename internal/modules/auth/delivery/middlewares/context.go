@@ -1,4 +1,4 @@
-package authhttp
+package middlewares
 
 import (
 	"context"

@@ -38,12 +38,6 @@ type AuthResult struct {
 	ExpiresAt time.Time
 }
 
-type CreatePasswordUserParams struct {
-	Username     string
-	Email        string
-	PasswordHash string
-}
-
 func currentUserFromDomain(user domain.User) CurrentUser {
 	return CurrentUser{
 		ID:       int64(user.ID),
