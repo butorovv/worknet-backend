@@ -1,12 +1,22 @@
 # Local Docker
 
-Запуск PostgreSQL с применением миграций:
+Запуск backend, PostgreSQL, Redis и миграций:
 
 ```bash
-docker compose up postgres migrate
+docker compose up backend
 ```
 
-После успешного выполнения сервис `migrate` завершится с кодом `0`, а `postgres` продолжит работать.
+После успешного выполнения сервис `migrate` завершится с кодом `0`, а `backend`,
+`db` и `redis` продолжат работать.
+
+Auth MVP использует cookie-based sessions:
+
+- cookie name: `session_id`;
+- `SameSite=Lax`;
+- `HttpOnly=true`;
+- `Secure` управляется `SESSION_COOKIE_SECURE`;
+- session TTL по умолчанию: `720h`;
+- active sessions хранятся только в Redis.
 
 Повторный запуск миграций на уже заполненной схеме может упасть на существующих таблицах/индексах. Для чистого локального прогона сначала удалите volume:
 
@@ -17,7 +27,7 @@ docker compose down -v
 Подключение с хоста:
 
 ```bash
-psql postgres://worknet:worknet@localhost:5432/worknet?sslmode=disable
+psql postgres://postgres:worknet@localhost:5432/worknet?sslmode=disable
 ```
 
 Остановить БД:
