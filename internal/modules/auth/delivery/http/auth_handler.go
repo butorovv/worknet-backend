@@ -17,20 +17,20 @@ import (
 
 const maxJSONBodyBytes int64 = 1 << 20
 
-type AuthService interface {
+type AuthUsecase interface {
 	Register(ctx context.Context, cmd usecase.RegisterCommand) (usecase.AuthResult, error)
 	Login(ctx context.Context, cmd usecase.LoginCommand) (usecase.AuthResult, error)
 	Logout(ctx context.Context, cmd usecase.LogoutCommand) error
 }
 
 type Handler struct {
-	service AuthService
+	uc      AuthUsecase
 	cookies authdelivery.CookieConfig
 }
 
-func NewHandler(service AuthService, cookies authdelivery.CookieConfig) *Handler {
+func NewHandler(uc AuthUsecase, cookies authdelivery.CookieConfig) *Handler {
 	return &Handler{
-		service: service,
+		uc:      uc,
 		cookies: cookies,
 	}
 }
@@ -53,7 +53,7 @@ func (h *Handler) Register(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.service.Register(r.Context(), usecase.RegisterCommand{
+	result, err := h.uc.Register(r.Context(), usecase.RegisterCommand{
 		Username: request.Username,
 		Email:    request.Email,
 		Password: request.Password,
@@ -78,7 +78,7 @@ func (h *Handler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := h.service.Login(r.Context(), usecase.LoginCommand{
+	result, err := h.uc.Login(r.Context(), usecase.LoginCommand{
 		Email:    request.Email,
 		Password: request.Password,
 	})
@@ -103,7 +103,7 @@ func (h *Handler) Logout(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if err := h.service.Logout(r.Context(), usecase.LogoutCommand{SessionID: sessionID}); err != nil {
+	if err := h.uc.Logout(r.Context(), usecase.LogoutCommand{SessionID: sessionID}); err != nil {
 		authdelivery.WriteUsecaseError(w, err)
 		return
 	}

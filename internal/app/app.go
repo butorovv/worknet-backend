@@ -57,7 +57,7 @@ func New(ctx context.Context) (*App, error) {
 	authRepository := authrepo.NewAuthRepoPostgres(db)
 	sessionStore := authrepo.NewSessionRepoRedis(redisClient, "auth:session:")
 
-	authService, err := authusecase.NewAuthUsecase(
+	authUsecase, err := authusecase.NewAuthUsecase(
 		authRepository,
 		sessionStore,
 		password.NewBcryptHasher(cfg.BcryptCost),
@@ -76,8 +76,8 @@ func New(ctx context.Context) (*App, error) {
 		Secure: cfg.SessionSecure,
 	}
 
-	authHandler := authhttp.NewHandler(authService, cookieConfig)
-	authMiddleware := authmw.NewMiddleware(authService, cookieConfig)
+	authHandler := authhttp.NewHandler(authUsecase, cookieConfig)
+	authMiddleware := authmw.NewMiddleware(authUsecase, cookieConfig)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health)

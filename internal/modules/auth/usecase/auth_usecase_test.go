@@ -12,9 +12,9 @@ import (
 func TestRegisterCreatesUserAndSession(t *testing.T) {
 	users := newFakeUsers()
 	sessions := newFakeSessions()
-	service := newTestUsecase(t, users, sessions)
+	uc := newTestUsecase(t, users, sessions)
 
-	result, err := service.Register(context.Background(), RegisterCommand{
+	result, err := uc.Register(context.Background(), RegisterCommand{
 		Username: "georgiy",
 		Email:    "GEORGIY@example.com",
 		Password: "password123",
@@ -37,9 +37,9 @@ func TestRegisterCreatesUserAndSession(t *testing.T) {
 func TestLoginRejectsInvalidPassword(t *testing.T) {
 	users := newFakeUsers()
 	sessions := newFakeSessions()
-	service := newTestUsecase(t, users, sessions)
+	uc := newTestUsecase(t, users, sessions)
 
-	_, err := service.Register(context.Background(), RegisterCommand{
+	_, err := uc.Register(context.Background(), RegisterCommand{
 		Username: "georgiy",
 		Email:    "georgiy@example.com",
 		Password: "password123",
@@ -48,7 +48,7 @@ func TestLoginRejectsInvalidPassword(t *testing.T) {
 		t.Fatalf("Register() error = %v", err)
 	}
 
-	_, err = service.Login(context.Background(), LoginCommand{
+	_, err = uc.Login(context.Background(), LoginCommand{
 		Email:    "georgiy@example.com",
 		Password: "wrong-password",
 	})
@@ -60,9 +60,9 @@ func TestLoginRejectsInvalidPassword(t *testing.T) {
 func TestValidateSessionReturnsCurrentUser(t *testing.T) {
 	users := newFakeUsers()
 	sessions := newFakeSessions()
-	service := newTestUsecase(t, users, sessions)
+	uc := newTestUsecase(t, users, sessions)
 
-	result, err := service.Register(context.Background(), RegisterCommand{
+	result, err := uc.Register(context.Background(), RegisterCommand{
 		Username: "georgiy",
 		Email:    "georgiy@example.com",
 		Password: "password123",
@@ -71,7 +71,7 @@ func TestValidateSessionReturnsCurrentUser(t *testing.T) {
 		t.Fatalf("Register() error = %v", err)
 	}
 
-	user, err := service.ValidateSession(context.Background(), ValidateSessionCommand{
+	user, err := uc.ValidateSession(context.Background(), ValidateSessionCommand{
 		SessionID: result.SessionID,
 	})
 	if err != nil {
@@ -85,7 +85,7 @@ func TestValidateSessionReturnsCurrentUser(t *testing.T) {
 func newTestUsecase(t *testing.T, users *fakeUsers, sessions *fakeSessions) *AuthUsecase {
 	t.Helper()
 
-	service, err := newAuthUsecase(
+	uc, err := newAuthUsecase(
 		users,
 		sessions,
 		fakeHasher{},
@@ -96,7 +96,7 @@ func newTestUsecase(t *testing.T, users *fakeUsers, sessions *fakeSessions) *Aut
 	if err != nil {
 		t.Fatalf("NewAuthUsecase() error = %v", err)
 	}
-	return service
+	return uc
 }
 
 type fakeUsers struct {

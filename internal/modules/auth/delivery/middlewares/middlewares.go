@@ -9,19 +9,19 @@ import (
 	"github.com/butorovv/worknet-backend/internal/platform/httpx"
 )
 
-type AuthUsecase interface {
+type SessionValidator interface {
 	ValidateSession(ctx context.Context, cmd usecase.ValidateSessionCommand) (usecase.CurrentUser, error)
 }
 
 type Middleware struct {
-	service AuthUsecase
-	cookies authdelivery.CookieConfig
+	validator SessionValidator
+	cookies   authdelivery.CookieConfig
 }
 
-func NewMiddleware(service AuthUsecase, cookies authdelivery.CookieConfig) *Middleware {
+func NewMiddleware(validator SessionValidator, cookies authdelivery.CookieConfig) *Middleware {
 	return &Middleware{
-		service: service,
-		cookies: cookies,
+		validator: validator,
+		cookies:   cookies,
 	}
 }
 
@@ -33,7 +33,7 @@ func (m *Middleware) RequireAuth(next http.Handler) http.Handler {
 			return
 		}
 
-		user, err := m.service.ValidateSession(r.Context(), usecase.ValidateSessionCommand{
+		user, err := m.validator.ValidateSession(r.Context(), usecase.ValidateSessionCommand{
 			SessionID: cookie.Value,
 		})
 		if err != nil {
