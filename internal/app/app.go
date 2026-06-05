@@ -122,8 +122,19 @@ func (a *App) ShutdownTimeout() time.Duration {
 func registerAuthRoutes(mux *http.ServeMux, handler *authhttp.AuthHandler, middleware *authmw.Middleware) {
 	mux.HandleFunc("/api/v1/auth/register", handler.Register)
 	mux.HandleFunc("/api/v1/auth/login", handler.Login)
-	mux.Handle("/api/v1/auth/logout", middleware.RequireAuth(http.HandlerFunc(handler.Logout)))
-	mux.Handle("/api/v1/auth/me", middleware.RequireAuth(http.HandlerFunc(handler.Me)))
+	mux.Handle("/api/v1/auth/logout", protectedRoute(http.MethodPost, middleware, handler.Logout))
+	mux.Handle("/api/v1/auth/me", protectedRoute(http.MethodGet, middleware, handler.Me))
+}
+
+func protectedRoute(method string, middleware *authmw.Middleware, handler http.HandlerFunc) http.Handler {
+	protected := middleware.RequireAuth(handler)
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != method {
+			httpx.MethodNotAllowed(w)
+			return
+		}
+		protected.ServeHTTP(w, r)
+	})
 }
 
 func health(w http.ResponseWriter, r *http.Request) {

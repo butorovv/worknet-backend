@@ -21,7 +21,7 @@
 | Middleware set | Только auth session middleware в auth module | CORS, CSRF, access log, rate limit, JWT/session helpers | WorkNet middleware пока минимальный |
 | Content-Type policy | Strict JSON decode, но нет обязательной проверки `Content-Type: application/json` | Auth handler проверяет content type | WorkNet не требует content-type |
 | Cookie config | Cookie name/secure/ttl из WorkNet config, SameSite Lax фиксирован | Auth cookie читает `COOKIE_SECURE`, `COOKIE_SAMESITE`, `COOKIE_DOMAIN` прямо из env | Cookie config model отличается |
-| Repository SQL | SQL inline в Go file | SQL вынесен в `repository/sql/...` и подключается через `go:embed` | SQL layout еще не Yabloko-like |
+| Repository SQL | SQL вынесен в `internal/modules/auth/repository/sql/auth/*.sql` и подключается через `go:embed` | SQL вынесен в `repository/sql/...` и подключается через `go:embed` | Практически совпадает; major gap закрыт |
 | Repository logging | Repository без contextual logs | Repository логирует start/success/error через `logger.FromContext` | Разный уровень observability |
 | Repository shape | Один `AuthRepoPostgres` для users + identities, отдельный `SessionRepoRedis` | `AuthRepoPostgres` только Postgres users/password; Redis sessions нет | WorkNet добавил session repository |
 | Domain model | `UserID int64`, `User`, `AuthIdentity`, `Session` | Auth domain user с string UUID и JWT-oriented auth fields | Domain отличается под схему WorkNet |
@@ -48,16 +48,13 @@
 - `go.mod`, migrations, Docker/dev setup и DB schema не приводились к Yabloko.
 - Package `delivery/http` оставлен как `authhttp` на уровне package name/import
   alias, чтобы не конфликтовать ментально с `net/http`.
-- SQL оставлен inline на этом шаге, потому что перенос в embedded files не
-  нужен для сохранения behavior и увеличивает diff.
+- SQL вынесен в embedded files через `go:embed`; major gap по repository SQL
+  закрыт.
 - Yabloko `pkg/http_response` не перенесен, потому что меняет JSON error shape.
 - Yabloko logging/trace не переносились как часть Auth MVP style migration.
 
 ## 3. Какие различия стоит убрать в будущем
 
-- Вынести SQL из `auth_repo_postgres.go` в
-  `internal/modules/auth/repository/sql/auth/*.sql` через `go:embed`, если это
-  будет отдельный маленький безопасный шаг.
 - Добавить WorkNet-native request id/access log middleware, если это нужно для
   backend observability; ориентироваться на Yabloko `pkg/logger`/`pkg/trace`, но
   не копировать blindly.

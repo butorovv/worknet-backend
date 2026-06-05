@@ -63,8 +63,8 @@
   WorkNet error response JSON contract.
 - Multi-service runtime layout не перенесен, потому что WorkNet остается modular
   monolith.
-- SQL не вынесен в embedded files на этом шаге, чтобы не увеличивать diff и
-  риск вокруг рабочей auth persistence.
+- SQL уже вынесен в embedded files через `//go:embed`:
+  `internal/modules/auth/repository/sql/auth/*.sql`.
 
 ## 5. Что взято из 2026_1_ASAP
 
@@ -218,8 +218,8 @@ attempt и в этом шаге не восстанавливался.
 
 - Git видит renames как delete/add до staging, потому что изменения еще не
   staged.
-- SQL пока остается inline в repository; это осознанно оставлено для отдельного
-  безопасного шага.
+- SQL вынесен из repository в embedded files через `//go:embed`:
+  `internal/modules/auth/repository/sql/auth/*.sql`.
 - `internal/platform/httpx` стилистически отличается от Yabloko
   `pkg/http_response`, но менять его сейчас рискованно для frontend contract.
 - `internal/app` остается WorkNet composition root, хотя часть Yabloko router
