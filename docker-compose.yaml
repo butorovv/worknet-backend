@@ -9,26 +9,42 @@ services:
       LOG_LEVEL: ${LOG_LEVEL:-info}
 
       # Postgres / Database
-      POSTGRES_HOST: ${POSTGRES_HOST}
-      POSTGRES_PORT: ${POSTGRES_PORT}
+      POSTGRES_HOST: ${POSTGRES_HOST:-db}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       POSTGRES_USER: ${POSTGRES_USER:-postgres}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
-      DATABASE_URL: "postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@${POSTGRES_HOST}:${POSTGRES_PORT}/${POSTGRES_DB}?sslmode=disable"
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-worknet}
+      POSTGRES_DB: ${POSTGRES_DB:-worknet}
+      DATABASE_URL: "postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-worknet}@${POSTGRES_HOST:-db}:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-worknet}?sslmode=disable"
+
+      # Redis / Sessions
+      REDIS_ADDR: ${REDIS_ADDR:-redis:6379}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-session_id}
+      SESSION_COOKIE_SECURE: ${SESSION_COOKIE_SECURE:-false}
+      SESSION_TTL: ${SESSION_TTL:-720h}
 
     depends_on:
-      - db
-      - migrate
+      db:
+        condition: service_started
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
     restart: always
 
   db:
     image: postgres:15
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
-      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-worknet}
+      POSTGRES_DB: ${POSTGRES_DB:-worknet}
     ports:
       - "5432:5432"
+    restart: always
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
     restart: always
 
   migrate:
@@ -41,7 +57,7 @@ services:
       - |
         set -e
         RETRIES=10
-        until migrate -path=/migrations -database="postgres://postgres:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}?sslmode=disable" up; do
+        until migrate -path=/migrations -database="postgres://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-worknet}@db:5432/${POSTGRES_DB:-worknet}?sslmode=disable" up; do
           if [ $$RETRIES -eq 0 ]; then
             echo "Migration failed"
             exit 1
