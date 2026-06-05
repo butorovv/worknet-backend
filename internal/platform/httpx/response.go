@@ -16,11 +16,24 @@ type ErrorBody struct {
 
 func WriteJSON(w http.ResponseWriter, status int, payload any) {
 	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
 	if payload == nil {
+		w.WriteHeader(status)
 		return
 	}
-	_ = json.NewEncoder(w).Encode(payload)
+
+	body, err := json.Marshal(payload)
+	if err != nil {
+		status = http.StatusInternalServerError
+		body, _ = json.Marshal(ErrorResponse{
+			Error: ErrorBody{
+				Code:    "internal_error",
+				Message: "Internal server error",
+			},
+		})
+	}
+
+	w.WriteHeader(status)
+	_, _ = w.Write(append(body, '\n'))
 }
 
 func WriteError(w http.ResponseWriter, status int, code, message string) {

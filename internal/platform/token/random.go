@@ -18,9 +18,18 @@ func NewRandomGenerator(bytes int) *RandomGenerator {
 }
 
 func (g *RandomGenerator) Generate(ctx context.Context) (string, error) {
-	_ = ctx
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+
 	buffer := make([]byte, g.bytes)
 	if _, err := rand.Read(buffer); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buffer), nil

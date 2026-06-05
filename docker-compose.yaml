@@ -23,9 +23,12 @@ services:
       SESSION_TTL: ${SESSION_TTL:-720h}
 
     depends_on:
-      - db
-      - redis
-      - migrate
+      db:
+        condition: service_started
+      redis:
+        condition: service_started
+      migrate:
+        condition: service_completed_successfully
     restart: always
 
   db:

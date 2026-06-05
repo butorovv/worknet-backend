@@ -54,6 +54,9 @@ func Load() (Config, error) {
 	if cfg.BcryptCost, err = getint("BCRYPT_COST", cfg.BcryptCost); err != nil {
 		return Config{}, err
 	}
+	if err := validateBcryptCost(cfg.BcryptCost); err != nil {
+		return Config{}, err
+	}
 	if cfg.SessionTTL, err = getduration("SESSION_TTL", cfg.SessionTTL); err != nil {
 		return Config{}, err
 	}
@@ -111,6 +114,13 @@ func getint(key string, fallback int) (int, error) {
 		return 0, fmt.Errorf("%s must be an integer: %w", key, err)
 	}
 	return parsed, nil
+}
+
+func validateBcryptCost(cost int) error {
+	if cost < bcrypt.MinCost || cost > bcrypt.MaxCost {
+		return fmt.Errorf("BCRYPT_COST must be between %d and %d", bcrypt.MinCost, bcrypt.MaxCost)
+	}
+	return nil
 }
 
 func getduration(key string, fallback time.Duration) (time.Duration, error) {

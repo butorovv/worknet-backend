@@ -3,6 +3,7 @@ package usecase
 import (
 	"context"
 	"errors"
+	"strconv"
 	"testing"
 	"time"
 
@@ -212,7 +213,7 @@ type fakeTokens struct {
 
 func (f *fakeTokens) Generate(_ context.Context) (string, error) {
 	f.next++
-	return "session-token", nil
+	return "session-token-" + strconv.Itoa(f.next), nil
 }
 
 type fakeClock struct {

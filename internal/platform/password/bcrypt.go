@@ -11,7 +11,7 @@ type BcryptHasher struct {
 }
 
 func NewBcryptHasher(cost int) *BcryptHasher {
-	if cost == 0 {
+	if cost < bcrypt.MinCost || cost > bcrypt.MaxCost {
 		cost = bcrypt.DefaultCost
 	}
 	return &BcryptHasher{cost: cost}
