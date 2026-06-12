@@ -2,6 +2,7 @@ package authhttp
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -243,6 +244,92 @@ func TestMiddlewareRejectsMissingCookie(t *testing.T) {
 
 	if rec.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want %d", rec.Code, http.StatusUnauthorized)
+	}
+}
+
+func TestOptionalAuthAllowsAnonymousAndInvalidSessions(t *testing.T) {
+	tests := []struct {
+		name        string
+		cookie      *http.Cookie
+		validateErr error
+		wantUser    bool
+	}{
+		{name: "missing cookie"},
+		{
+			name:        "missing or expired session",
+			cookie:      &http.Cookie{Name: "session_id", Value: "invalid"},
+			validateErr: domain.ErrSessionNotFound,
+		},
+		{
+			name:        "session user missing",
+			cookie:      &http.Cookie{Name: "session_id", Value: "missing-user"},
+			validateErr: domain.ErrUserNotFound,
+		},
+		{
+			name:        "session user inactive",
+			cookie:      &http.Cookie{Name: "session_id", Value: "inactive-user"},
+			validateErr: domain.ErrUserInactive,
+		},
+		{
+			name:     "valid session",
+			cookie:   &http.Cookie{Name: "session_id", Value: "valid"},
+			wantUser: true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			uc := &fakeAuthUseCase{
+				validateUser: usecase.CurrentUser{ID: 1, Username: "georgiy"},
+				validateErr:  tt.validateErr,
+			}
+			middleware := authmw.NewMiddleware(uc, authdelivery.CookieConfig{Name: "session_id"})
+			next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, hasUser := authmw.CurrentUserFromContext(r.Context())
+				if hasUser != tt.wantUser {
+					t.Fatalf("has user = %v, want %v", hasUser, tt.wantUser)
+				}
+				w.WriteHeader(http.StatusNoContent)
+			})
+
+			req := httptest.NewRequest(http.MethodGet, "/public", nil)
+			if tt.cookie != nil {
+				req.AddCookie(tt.cookie)
+			}
+			rec := httptest.NewRecorder()
+
+			middleware.OptionalAuth(next).ServeHTTP(rec, req)
+
+			if rec.Code != http.StatusNoContent {
+				t.Fatalf("status = %d, want %d", rec.Code, http.StatusNoContent)
+			}
+		})
+	}
+}
+
+func TestOptionalAuthWritesInternalErrors(t *testing.T) {
+	uc := &fakeAuthUseCase{validateErr: errors.New("redis unavailable")}
+	middleware := authmw.NewMiddleware(uc, authdelivery.CookieConfig{Name: "session_id"})
+	nextCalled := false
+	next := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		nextCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodGet, "/public", nil)
+	req.AddCookie(&http.Cookie{Name: "session_id", Value: "session"})
+	rec := httptest.NewRecorder()
+
+	middleware.OptionalAuth(next).ServeHTTP(rec, req)
+
+	if nextCalled {
+		t.Fatal("next handler must not be called for internal auth errors")
+	}
+	if rec.Code != http.StatusInternalServerError {
+		t.Fatalf("status = %d, want %d", rec.Code, http.StatusInternalServerError)
+	}
+	if body := rec.Body.String(); !strings.Contains(body, `"internal_error"`) {
+		t.Fatalf("unexpected body: %s", body)
 	}
 }
 

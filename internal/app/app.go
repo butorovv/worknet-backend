@@ -13,6 +13,9 @@ import (
 	authmw "github.com/butorovv/worknet-backend/internal/modules/auth/delivery/middlewares"
 	authrepo "github.com/butorovv/worknet-backend/internal/modules/auth/repository"
 	authusecase "github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
+	spaceshttp "github.com/butorovv/worknet-backend/internal/modules/spaces/delivery/http"
+	spacesrepo "github.com/butorovv/worknet-backend/internal/modules/spaces/repository"
+	spacesusecase "github.com/butorovv/worknet-backend/internal/modules/spaces/usecase"
 	"github.com/butorovv/worknet-backend/internal/platform/config"
 	"github.com/butorovv/worknet-backend/internal/platform/httpx"
 	"github.com/butorovv/worknet-backend/internal/platform/password"
@@ -79,9 +82,19 @@ func New(ctx context.Context) (*App, error) {
 	authHandler := authhttp.NewAuthHandler(authUsecase, cookieConfig)
 	authMiddleware := authmw.NewMiddleware(authUsecase, cookieConfig)
 
+	spacesRepository := spacesrepo.NewSpacesRepoPostgres(db)
+	spacesUsecase, err := spacesusecase.NewSpacesUseCase(spacesRepository)
+	if err != nil {
+		db.Close()
+		_ = redisClient.Close()
+		return nil, err
+	}
+	spacesHandler := spaceshttp.NewSpacesHandler(spacesUsecase)
+
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health)
 	registerAuthRoutes(mux, authHandler, authMiddleware)
+	registerSpacesRoutes(mux, spacesHandler, authMiddleware)
 
 	return &App{
 		cfg: cfg,
@@ -124,6 +137,39 @@ func registerAuthRoutes(mux *http.ServeMux, handler *authhttp.AuthHandler, middl
 	mux.HandleFunc("/api/v1/auth/login", handler.Login)
 	mux.Handle("/api/v1/auth/logout", protectedRoute(http.MethodPost, middleware, handler.Logout))
 	mux.Handle("/api/v1/auth/me", protectedRoute(http.MethodGet, middleware, handler.Me))
+}
+
+func registerSpacesRoutes(mux *http.ServeMux, handler *spaceshttp.SpacesHandler, middleware *authmw.Middleware) {
+	list := middleware.OptionalAuth(http.HandlerFunc(handler.List))
+	create := middleware.RequireAuth(http.HandlerFunc(handler.Create))
+	get := middleware.OptionalAuth(http.HandlerFunc(handler.Get))
+	overview := middleware.OptionalAuth(http.HandlerFunc(handler.Overview))
+	update := middleware.RequireAuth(http.HandlerFunc(handler.Update))
+	archive := middleware.RequireAuth(http.HandlerFunc(handler.Archive))
+
+	mux.Handle("/api/v1/spaces", methodRoutes(map[string]http.Handler{
+		http.MethodGet:  list,
+		http.MethodPost: create,
+	}))
+	mux.Handle("/api/v1/spaces/{slug}", methodRoutes(map[string]http.Handler{
+		http.MethodGet:    get,
+		http.MethodPatch:  update,
+		http.MethodDelete: archive,
+	}))
+	mux.Handle("/api/v1/spaces/{slug}/overview", methodRoutes(map[string]http.Handler{
+		http.MethodGet: overview,
+	}))
+}
+
+func methodRoutes(routes map[string]http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handler, ok := routes[r.Method]
+		if !ok {
+			httpx.MethodNotAllowed(w)
+			return
+		}
+		handler.ServeHTTP(w, r)
+	})
 }
 
 func protectedRoute(method string, middleware *authmw.Middleware, handler http.HandlerFunc) http.Handler {
