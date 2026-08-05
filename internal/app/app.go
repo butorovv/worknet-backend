@@ -13,6 +13,9 @@ import (
 	authmw "github.com/butorovv/worknet-backend/internal/modules/auth/delivery/middlewares"
 	authrepo "github.com/butorovv/worknet-backend/internal/modules/auth/repository"
 	authusecase "github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
+	requestshttp "github.com/butorovv/worknet-backend/internal/modules/requests/delivery/http"
+	requestsrepo "github.com/butorovv/worknet-backend/internal/modules/requests/repository"
+	requestsusecase "github.com/butorovv/worknet-backend/internal/modules/requests/usecase"
 	spaceshttp "github.com/butorovv/worknet-backend/internal/modules/spaces/delivery/http"
 	spacesrepo "github.com/butorovv/worknet-backend/internal/modules/spaces/repository"
 	spacesusecase "github.com/butorovv/worknet-backend/internal/modules/spaces/usecase"
@@ -90,11 +93,23 @@ func New(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 	spacesHandler := spaceshttp.NewSpacesHandler(spacesUsecase)
+	requestsRepository := requestsrepo.NewRequestsRepoPostgres(db)
+	requestsUsecase, err := requestsusecase.NewRequestsUseCase(
+		requestsRepository,
+		newRequestsSpaceAccessAdapter(spacesUsecase),
+	)
+	if err != nil {
+		db.Close()
+		_ = redisClient.Close()
+		return nil, err
+	}
+	requestsHandler := requestshttp.NewRequestsHandler(requestsUsecase)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/health", health)
 	registerAuthRoutes(mux, authHandler, authMiddleware)
 	registerSpacesRoutes(mux, spacesHandler, authMiddleware)
+	registerRequestsRoutes(mux, requestsHandler, authMiddleware)
 
 	return &App{
 		cfg: cfg,
@@ -158,6 +173,13 @@ func registerSpacesRoutes(mux *http.ServeMux, handler *spaceshttp.SpacesHandler,
 	}))
 	mux.Handle("/api/v1/spaces/{slug}/overview", methodRoutes(map[string]http.Handler{
 		http.MethodGet: overview,
+	}))
+}
+
+func registerRequestsRoutes(mux *http.ServeMux, handler *requestshttp.RequestsHandler, middleware *authmw.Middleware) {
+	listBySpace := middleware.OptionalAuth(http.HandlerFunc(handler.List))
+	mux.Handle("/api/v1/spaces/{slug}/requests", methodRoutes(map[string]http.Handler{
+		http.MethodGet: listBySpace,
 	}))
 }
 

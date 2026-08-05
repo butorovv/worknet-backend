@@ -91,7 +91,7 @@ func (s Space) Validate() error {
 	if !validLength(strings.TrimSpace(s.Title), 2, 80) {
 		return ErrInvalidInput
 	}
-	if !slugPattern.MatchString(s.Slug) {
+	if !ValidSlug(s.Slug) {
 		return ErrInvalidInput
 	}
 	if !validLength(strings.TrimSpace(s.ShortDescription), 10, 240) {
@@ -110,6 +110,10 @@ func (s Space) Validate() error {
 		return ErrInvalidInput
 	}
 	return nil
+}
+
+func ValidSlug(slug string) bool {
+	return slugPattern.MatchString(strings.TrimSpace(slug))
 }
 
 func (s SpaceStatus) Valid() bool {
