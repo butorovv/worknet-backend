@@ -65,6 +65,18 @@ type GetSpaceOverviewCommand struct {
 	Slug   string
 }
 
+type ResolveSpaceAccessQuery struct {
+	Viewer Viewer
+	Slug   string
+}
+
+type SpaceAccess struct {
+	SpaceID  domain.SpaceID
+	IsMember bool
+	IsOwner  bool
+	IsAdmin  bool
+}
+
 type SpaceDetails struct {
 	Space domain.Space
 	Stack []domain.SpaceStackItem

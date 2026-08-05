@@ -11,6 +11,9 @@ import (
 	authhttp "github.com/butorovv/worknet-backend/internal/modules/auth/delivery/http"
 	authmw "github.com/butorovv/worknet-backend/internal/modules/auth/delivery/middlewares"
 	"github.com/butorovv/worknet-backend/internal/modules/auth/usecase"
+	requestshttp "github.com/butorovv/worknet-backend/internal/modules/requests/delivery/http"
+	requestsdomain "github.com/butorovv/worknet-backend/internal/modules/requests/domain"
+	requestsusecase "github.com/butorovv/worknet-backend/internal/modules/requests/usecase"
 	spaceshttp "github.com/butorovv/worknet-backend/internal/modules/spaces/delivery/http"
 	spacesdomain "github.com/butorovv/worknet-backend/internal/modules/spaces/domain"
 	spacesusecase "github.com/butorovv/worknet-backend/internal/modules/spaces/usecase"
@@ -50,20 +53,26 @@ func TestSpacesRoutesPublicProtectedAndPathValue(t *testing.T) {
 	cookies := authdelivery.CookieConfig{Name: "session_id", TTL: 30 * 24 * time.Hour}
 	authMiddleware := authmw.NewMiddleware(authUC, cookies)
 	spacesUC := &routeSpacesUseCase{}
-	handler := spaceshttp.NewSpacesHandler(spacesUC)
+	spacesHandler := spaceshttp.NewSpacesHandler(spacesUC)
+	requestsUC := &routeRequestsUseCase{}
+	requestsHandler := requestshttp.NewRequestsHandler(requestsUC)
 
 	mux := http.NewServeMux()
-	registerSpacesRoutes(mux, handler, authMiddleware)
+	registerSpacesRoutes(mux, spacesHandler, authMiddleware)
+	registerRequestsRoutes(mux, requestsHandler, authMiddleware)
 
 	tests := []struct {
-		name       string
-		method     string
-		path       string
-		wantStatus int
+		name        string
+		method      string
+		path        string
+		wantStatus  int
+		withSession bool
 	}{
 		{name: "public list", method: http.MethodGet, path: "/api/v1/spaces", wantStatus: http.StatusOK},
 		{name: "public get", method: http.MethodGet, path: "/api/v1/spaces/worknet", wantStatus: http.StatusOK},
 		{name: "public overview", method: http.MethodGet, path: "/api/v1/spaces/worknet/overview", wantStatus: http.StatusOK},
+		{name: "public requests", method: http.MethodGet, path: "/api/v1/spaces/worknet/requests", wantStatus: http.StatusOK},
+		{name: "authenticated requests", method: http.MethodGet, path: "/api/v1/spaces/worknet/requests", wantStatus: http.StatusOK, withSession: true},
 		{name: "protected create", method: http.MethodPost, path: "/api/v1/spaces", wantStatus: http.StatusUnauthorized},
 		{name: "protected update", method: http.MethodPatch, path: "/api/v1/spaces/worknet", wantStatus: http.StatusUnauthorized},
 		{name: "protected archive", method: http.MethodDelete, path: "/api/v1/spaces/worknet", wantStatus: http.StatusUnauthorized},
@@ -73,6 +82,9 @@ func TestSpacesRoutesPublicProtectedAndPathValue(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			req := httptest.NewRequest(tt.method, tt.path, nil)
+			if tt.withSession {
+				req.AddCookie(&http.Cookie{Name: "session_id", Value: "valid-session"})
+			}
 			rec := httptest.NewRecorder()
 
 			mux.ServeHTTP(rec, req)
@@ -82,8 +94,11 @@ func TestSpacesRoutesPublicProtectedAndPathValue(t *testing.T) {
 			}
 		})
 	}
-	if spacesUC.lastSlug != "worknet" {
-		t.Fatalf("path slug = %q, want worknet", spacesUC.lastSlug)
+	if requestsUC.lastQuery.Slug != "worknet" {
+		t.Fatalf("requests path slug = %q, want worknet", requestsUC.lastQuery.Slug)
+	}
+	if requestsUC.lastQuery.ViewerID == nil || *requestsUC.lastQuery.ViewerID != 42 {
+		t.Fatalf("requests optional auth viewer = %v", requestsUC.lastQuery.ViewerID)
 	}
 }
 
@@ -113,7 +128,7 @@ func (routeAuthUseCase) Logout(context.Context, usecase.LogoutCommand) error {
 }
 
 func (routeAuthUseCase) ValidateSession(context.Context, usecase.ValidateSessionCommand) (usecase.CurrentUser, error) {
-	return usecase.CurrentUser{}, nil
+	return usecase.CurrentUser{ID: 42, Status: "active"}, nil
 }
 
 type routeSpacesUseCase struct {
@@ -157,6 +172,20 @@ func (r *routeSpacesUseCase) GetSpaceOverview(_ context.Context, cmd spacesuseca
 		Activity: spacesusecase.ActivitySummary{
 			Range: "30d",
 			Days:  []spacesusecase.ActivityDay{},
+		},
+	}, nil
+}
+
+type routeRequestsUseCase struct {
+	lastQuery requestsusecase.ListSpaceRequestsQuery
+}
+
+func (r *routeRequestsUseCase) ListSpaceRequests(_ context.Context, query requestsusecase.ListSpaceRequestsQuery) (requestsusecase.ListSpaceRequestsResult, error) {
+	r.lastQuery = query
+	return requestsusecase.ListSpaceRequestsResult{
+		Items: []requestsdomain.Request{},
+		Pagination: requestsusecase.Pagination{
+			Limit: query.Limit, Offset: query.Offset,
 		},
 	}, nil
 }

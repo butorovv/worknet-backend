@@ -92,10 +92,13 @@ func (fixedClock) Now() time.Time {
 }
 
 type fakeSpacesRepository struct {
-	space     domain.Space
-	members   []domain.SpaceMember
-	member    bool
-	canManage bool
+	space        domain.Space
+	getBySlugErr error
+	members      []domain.SpaceMember
+	member       bool
+	memberErr    error
+	canManage    bool
+	canManageErr error
 }
 
 func (f *fakeSpacesRepository) Create(context.Context, domain.Space, []domain.SpaceStackItem, []domain.SpaceLink) (domain.Space, error) {
@@ -105,7 +108,7 @@ func (f *fakeSpacesRepository) GetByID(context.Context, domain.SpaceID) (domain.
 	return f.space, nil
 }
 func (f *fakeSpacesRepository) GetBySlug(context.Context, string) (domain.Space, error) {
-	return f.space, nil
+	return f.space, f.getBySlugErr
 }
 func (f *fakeSpacesRepository) List(context.Context, domain.SpaceListFilter) ([]domain.Space, error) {
 	return []domain.Space{f.space}, nil
@@ -126,10 +129,10 @@ func (f *fakeSpacesRepository) CountMembers(context.Context, domain.SpaceID) (in
 	return len(f.members), nil
 }
 func (f *fakeSpacesRepository) IsMember(context.Context, domain.SpaceID, domain.UserID) (bool, error) {
-	return f.member, nil
+	return f.member, f.memberErr
 }
 func (f *fakeSpacesRepository) IsOwnerOrAdmin(context.Context, domain.SpaceID, domain.UserID) (bool, error) {
-	return f.canManage, nil
+	return f.canManage, f.canManageErr
 }
 func (f *fakeSpacesRepository) ReplaceStack(context.Context, domain.SpaceID, []domain.SpaceStackItem) error {
 	return nil
